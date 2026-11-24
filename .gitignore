@@ -22,6 +22,5 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local AI assistant notes
-CLAUDE.md
+# Local AI assistant settings
 .claude/
