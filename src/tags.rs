@@ -6,10 +6,10 @@ use anyhow::{Context, Result};
 use id3::frame::{Picture, PictureType};
 use id3::{Tag, TagLike, Timestamp, Version};
 
-use crate::jobs::Sink;
 use crate::spotify::Track;
 
-pub async fn write(path: &Path, track: &Track, http: &reqwest::Client, sink: &Sink) -> Result<()> {
+/// Writes the title, artists, album, year and (if given) front cover into the MP3.
+pub fn write(path: &Path, track: &Track, cover: Option<&[u8]>) -> Result<()> {
     let mut tag = Tag::new();
     tag.set_title(track.name.as_str());
     if !track.artists.is_empty() {
@@ -29,37 +29,46 @@ pub async fn write(path: &Path, track: &Track, http: &reqwest::Client, sink: &Si
             second: None,
         });
     }
-
-    if let Some(url) = &track.image_url {
-        match fetch_image(http, url).await {
-            Ok(data) => {
-                tag.add_frame(Picture {
-                    mime_type: if url.ends_with(".png") {
-                        "image/png"
-                    } else {
-                        "image/jpeg"
-                    }
-                    .to_string(),
-                    picture_type: PictureType::CoverFront,
-                    description: "Cover".to_string(),
-                    data,
-                });
-            }
-            Err(e) => sink.log(format!("  warning: could not download album art: {e:#}")),
-        }
+    if let Some(data) = cover {
+        tag.add_frame(Picture {
+            mime_type: image_mime(data).to_string(),
+            picture_type: PictureType::CoverFront,
+            description: "Cover".to_string(),
+            data: data.to_vec(),
+        });
     }
 
     tag.write_to_path(path, Version::Id3v24)
         .with_context(|| format!("cannot write tags to {}", path.display()))
 }
 
-async fn fetch_image(http: &reqwest::Client, url: &str) -> Result<Vec<u8>> {
-    let bytes = http
-        .get(url)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
-    Ok(bytes.to_vec())
+/// The MIME type of an image, read from its first bytes. Spotify serves JPEG.
+pub fn image_mime(data: &[u8]) -> &'static str {
+    if data.starts_with(b"\x89PNG") {
+        "image/png"
+    } else {
+        "image/jpeg"
+    }
+}
+
+/// File extension matching [`image_mime`].
+pub fn image_extension(data: &[u8]) -> &'static str {
+    if image_mime(data) == "image/png" {
+        "png"
+    } else {
+        "jpg"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{image_extension, image_mime};
+
+    #[test]
+    fn detects_image_type_from_magic_bytes() {
+        assert_eq!(image_mime(b"\x89PNG\r\n\x1a\n...."), "image/png");
+        assert_eq!(image_extension(b"\x89PNG\r\n\x1a\n...."), "png");
+        assert_eq!(image_mime(b"\xff\xd8\xff\xe0...."), "image/jpeg");
+        assert_eq!(image_extension(b""), "jpg");
+    }
 }

@@ -5,6 +5,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+/// Fewest and most tracks downloaded at the same time.
+pub const MIN_PARALLEL: usize = 1;
+pub const MAX_PARALLEL: usize = 8;
+const DEFAULT_PARALLEL: usize = 3;
+
 /// Name of the per-user folder used for config and the stored Spotify refresh token.
 const APP_DIR_NAME: &str = "spotify-dl";
 
@@ -16,6 +21,8 @@ struct ConfigFile {
     client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     client_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parallel: Option<usize>,
 }
 
 /// Where a credential comes from.
@@ -66,6 +73,16 @@ impl Config {
         self.save()
     }
 
+    /// How many tracks are downloaded at the same time.
+    pub fn parallel(&self) -> usize {
+        clamp_parallel(self.data.parallel.unwrap_or(DEFAULT_PARALLEL))
+    }
+
+    pub fn set_parallel(&mut self, n: usize) -> Result<()> {
+        self.data.parallel = Some(clamp_parallel(n));
+        self.save()
+    }
+
     /// The client ID to use and where it came from. The environment wins over saved values.
     pub fn client_id(&self) -> (String, Source) {
         pick(
@@ -104,6 +121,11 @@ impl Config {
         std::fs::write(&self.file, text)
             .with_context(|| format!("cannot write {}", self.file.display()))
     }
+}
+
+/// Keeps a parallel download count in the supported range.
+pub fn clamp_parallel(n: usize) -> usize {
+    n.clamp(MIN_PARALLEL, MAX_PARALLEL)
 }
 
 fn non_empty(value: &str, what: &str) -> Result<String> {
@@ -160,7 +182,21 @@ fn default_download_dir() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{Source, pick};
+    use super::{Config, ConfigFile, Source, clamp_parallel, pick};
+
+    #[test]
+    fn parallel_defaults_to_three_and_is_clamped() {
+        let mut config = Config {
+            file: std::path::PathBuf::from("unused.json"),
+            data: ConfigFile::default(),
+        };
+        assert_eq!(config.parallel(), 3);
+        config.data.parallel = Some(99);
+        assert_eq!(config.parallel(), 8);
+        config.data.parallel = Some(0);
+        assert_eq!(config.parallel(), 1);
+        assert_eq!(clamp_parallel(5), 5);
+    }
 
     #[test]
     fn environment_wins_over_saved() {

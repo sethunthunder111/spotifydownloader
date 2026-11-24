@@ -1,25 +1,38 @@
 //! Full-screen terminal interface, shown when spotify-dl is started without a subcommand.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use unicode_width::UnicodeWidthChar;
 
-use crate::config::{Config, Source, describe};
-use crate::jobs::{self, Job, Settings, Sink, run_job};
+use crate::art::Cover;
+use crate::config::{Config, MAX_PARALLEL, MIN_PARALLEL, Source, describe};
+use crate::format;
+use crate::jobs::{self, Job, Settings, Sink, TrackStatus, run_job};
 use crate::paths::{Completion, expand_home};
+use crate::youtube::SourceFormat;
 
 const LOG_LIMIT: usize = 1000;
 const SPINNER: [char; 4] = ['|', '/', '-', '\\'];
+/// Rows of the "Now downloading" panel, border included, when there is room for the cover art.
+const PANEL_ROWS_WITH_ART: u16 = 14;
+/// Rows of the panel when the screen is too short for art.
+const PANEL_ROWS_SMALL: u16 = 8;
+/// The log column must be at least this tall for the big panel, and this tall for the small one.
+const BIG_PANEL_MIN_COLUMN: u16 = 22;
+const SMALL_PANEL_MIN_COLUMN: u16 = 14;
+/// Smallest width of the text next to the cover art.
+const PANEL_TEXT_MIN_WIDTH: u16 = 34;
 const DASHBOARD_URL: &str = "https://developer.spotify.com/dashboard";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -51,6 +64,7 @@ enum Field {
     Folder,
     ClientId,
     ClientSecret,
+    Parallel,
 }
 
 impl Field {
@@ -59,6 +73,7 @@ impl Field {
             Field::Folder => "Download folder",
             Field::ClientId => "Spotify client ID",
             Field::ClientSecret => "Spotify client secret",
+            Field::Parallel => "Parallel downloads",
         }
     }
 }
@@ -67,6 +82,7 @@ const SETTINGS: &[(&str, Option<Field>)] = &[
     ("Download folder", Some(Field::Folder)),
     ("Spotify client ID", Some(Field::ClientId)),
     ("Spotify client secret", Some(Field::ClientSecret)),
+    ("Parallel downloads", Some(Field::Parallel)),
     ("Back", None),
 ];
 
@@ -93,6 +109,12 @@ struct App {
     /// What the running job is doing right now.
     progress: String,
     started: Option<Instant>,
+    /// Tracks being downloaded right now, in the order they started.
+    active: Vec<TrackStatus>,
+    /// Finished, failed and total tracks of the running job.
+    overall: (usize, usize, usize),
+    /// Cover art of the running job.
+    cover: Option<Arc<Cover>>,
     sink: Sink,
     rx: mpsc::UnboundedReceiver<jobs::Event>,
     job: Option<JoinHandle<()>>,
@@ -118,6 +140,9 @@ pub async fn run(settings: Settings, config: Config) -> Result<()> {
         status: String::new(),
         progress: String::new(),
         started: None,
+        active: Vec::new(),
+        overall: (0, 0, 0),
+        cover: None,
         sink: Sink::Channel(tx),
         rx,
         job: None,
@@ -141,6 +166,19 @@ impl App {
                 match event {
                     jobs::Event::Log(line) => self.push_log(&line),
                     jobs::Event::Progress(text) => self.progress = text,
+                    jobs::Event::Track(status) => {
+                        match self.active.iter_mut().find(|t| t.id == status.id) {
+                            Some(existing) => *existing = status,
+                            None => self.active.push(status),
+                        }
+                    }
+                    jobs::Event::TrackDone(id) => self.active.retain(|t| t.id != id),
+                    jobs::Event::Overall {
+                        done,
+                        failed,
+                        total,
+                    } => self.overall = (done, failed, total),
+                    jobs::Event::Cover(cover) => self.cover = Some(cover),
                 }
             }
             terminal.draw(|frame| self.draw(frame))?;
@@ -233,6 +271,8 @@ impl App {
                 self.input.pop();
                 self.refresh_completion(field);
             }
+            // The parallel count is a number; ignore anything else.
+            KeyCode::Char(c) if field == Field::Parallel && !c.is_ascii_digit() => {}
             KeyCode::Char(c) => {
                 self.input.push(c);
                 self.refresh_completion(field);
@@ -307,6 +347,9 @@ impl App {
         }
         self.status.clear();
         self.progress.clear();
+        self.active.clear();
+        self.overall = (0, 0, 0);
+        self.cover = None;
         self.started = Some(Instant::now());
         let settings = self.settings.clone();
         let sink = self.sink.clone();
@@ -332,6 +375,7 @@ impl App {
             Field::ClientId => self.config.saved_client_id().to_string(),
             // Never show the secret, saved or not.
             Field::ClientSecret => String::new(),
+            Field::Parallel => self.settings.parallel.to_string(),
         };
         self.completion = (field == Field::Folder).then(|| Completion::new(&self.input));
         self.mode = Mode::Edit(field);
@@ -355,6 +399,13 @@ impl App {
             Field::Folder => self.config.set_download_dir(expand_home(&text)),
             Field::ClientId => self.config.set_client_id(&text),
             Field::ClientSecret => self.config.set_client_secret(&text),
+            Field::Parallel => match text.parse::<usize>() {
+                Ok(n) if (MIN_PARALLEL..=MAX_PARALLEL).contains(&n) => self.config.set_parallel(n),
+                _ => {
+                    self.status = format!("Enter a number from {MIN_PARALLEL} to {MAX_PARALLEL}.");
+                    return;
+                }
+            },
         };
         if let Err(e) = saved {
             self.status = format!("Could not save: {e:#}");
@@ -365,9 +416,10 @@ impl App {
         (self.settings.client_id, self.settings.id_source) = self.config.client_id();
         (self.settings.client_secret, self.settings.secret_source) = self.config.client_secret();
         self.settings.download_dir = self.config.download_dir();
+        self.settings.parallel = self.config.parallel();
 
         let overridden = match field {
-            Field::Folder => false,
+            Field::Folder | Field::Parallel => false,
             Field::ClientId => self.settings.id_source == Source::Env,
             Field::ClientSecret => self.settings.secret_source == Source::Env,
         };
@@ -426,8 +478,20 @@ impl App {
         match self.mode {
             Mode::Settings => self.draw_values(frame, right),
             Mode::Edit(Field::Folder) => self.draw_folders(frame, right),
+            Mode::Edit(Field::Parallel) => self.draw_parallel_help(frame, right),
             Mode::Edit(field) => self.draw_help(frame, right, field),
-            Mode::Menu | Mode::Input(_) => self.draw_log(frame, right),
+            Mode::Menu | Mode::Input(_) => {
+                let panel_rows = self.panel_rows(right.height);
+                if panel_rows == 0 {
+                    self.draw_log(frame, right);
+                } else {
+                    let [top, bottom] =
+                        Layout::vertical([Constraint::Length(panel_rows), Constraint::Min(3)])
+                            .areas(right);
+                    self.draw_panel(frame, top);
+                    self.draw_log(frame, bottom);
+                }
+            }
         }
 
         let (footer_text, footer_style) = self.footer();
@@ -456,10 +520,14 @@ impl App {
             Mode::Menu if self.busy() => {
                 let elapsed = self.started.map(|s| s.elapsed()).unwrap_or_default();
                 let spin = SPINNER[(elapsed.as_millis() / 150) as usize % SPINNER.len()];
-                let doing = if self.progress.is_empty() {
-                    "Working..."
-                } else {
+                let (done, failed, total) = self.overall;
+                let counts = format!("{} of {total} tracks done", done + failed);
+                let doing = if !self.progress.is_empty() {
                     self.progress.as_str()
+                } else if total > 0 {
+                    counts.as_str()
+                } else {
+                    "Working..."
                 };
                 (
                     format!("{spin} {doing}  [{}s, q quits]", elapsed.as_secs()),
@@ -471,6 +539,111 @@ impl App {
             }
             Mode::Menu => hint("Up/Down select  Enter run  q quit"),
         }
+    }
+
+    /// How tall the "Now downloading" panel is. Zero hides it: no job is running, there is
+    /// nothing to show yet, or the terminal is too short.
+    fn panel_rows(&self, column_height: u16) -> u16 {
+        let has_content = !self.active.is_empty() || self.overall.2 > 0 || self.cover.is_some();
+        if !self.busy() || !has_content {
+            0
+        } else if column_height >= BIG_PANEL_MIN_COLUMN {
+            PANEL_ROWS_WITH_ART
+        } else if column_height >= SMALL_PANEL_MIN_COLUMN {
+            PANEL_ROWS_SMALL
+        } else {
+            0
+        }
+    }
+
+    /// Cover art on the left, overall progress and one entry per active track on the right.
+    fn draw_panel(&self, frame: &mut Frame, area: Rect) {
+        let block = Block::bordered().title(" Now downloading ");
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        // Art is about twice as wide as it is tall. The small panel has no art.
+        let art_rows = inner.height.min(12);
+        let art_cols = art_rows * 2;
+        let show_art = area.height >= PANEL_ROWS_WITH_ART
+            && self.cover.is_some()
+            && inner.width >= art_cols + 1 + PANEL_TEXT_MIN_WIDTH;
+        let text_area = if show_art {
+            let [art, text] =
+                Layout::horizontal([Constraint::Length(art_cols + 1), Constraint::Min(1)])
+                    .areas(inner);
+            if let Some(cover) = &self.cover {
+                draw_art(frame, art, cover, art_cols, art_rows);
+            }
+            text
+        } else {
+            inner
+        };
+        frame.render_widget(Paragraph::new(self.panel_lines(text_area)), text_area);
+    }
+
+    fn panel_lines(&self, area: Rect) -> Vec<Line<'static>> {
+        let width = area.width as usize;
+        let dim = Style::new().add_modifier(Modifier::DIM);
+        let (done, failed, total) = self.overall;
+
+        // Overall bar from finished tracks plus the fraction of each active one.
+        let mut fraction_of_active = 0.0;
+        let mut speed = 0.0;
+        for t in &self.active {
+            if let Some(tr) = &t.transfer {
+                speed += tr.speed.unwrap_or(0.0);
+                if let Some(total) = tr.total {
+                    fraction_of_active += tr.downloaded as f64 / total.max(1) as f64;
+                }
+            }
+        }
+        let overall = if total == 0 {
+            0.0
+        } else {
+            ((done + failed) as f64 + fraction_of_active) / total as f64
+        };
+        let tail = format!(
+            " {:>3.0}%  {}/{} tracks  {}",
+            overall * 100.0,
+            done + failed,
+            total,
+            format::rate(speed)
+        );
+        let bar_width = width.saturating_sub(tail.chars().count() + 2).clamp(4, 30);
+        let mut lines = vec![Line::from(fit(
+            &format!("{}{tail}", format::bar(overall, bar_width)),
+            width,
+        ))];
+
+        // Two lines per track. If they do not all fit, the last line says how many are hidden.
+        let spare = (area.height as usize).saturating_sub(1);
+        let overflow = self.active.len() > spare / 2;
+        let room = if overflow {
+            spare.saturating_sub(1) / 2
+        } else {
+            self.active.len()
+        };
+        for t in self.active.iter().take(room) {
+            lines.push(Line::from(fit(
+                &format!("{}  [{}]", t.label, t.stage.label()),
+                width,
+            )));
+            lines.push(Line::styled(fit(&track_detail(t, width), width), dim));
+        }
+        if overflow {
+            lines.push(Line::styled(
+                fit(
+                    &format!("+{} more downloading", self.active.len() - room),
+                    width,
+                ),
+                dim,
+            ));
+        }
+        if self.active.is_empty() && !self.progress.is_empty() {
+            lines.push(Line::styled(fit(&self.progress, width), dim));
+        }
+        lines
     }
 
     fn draw_log(&self, frame: &mut Frame, area: Rect) {
@@ -507,6 +680,7 @@ impl App {
                 " Client secret:   {}",
                 describe(&s.client_secret, s.secret_source, true)
             )),
+            Line::from(format!(" Parallel:        {} tracks at a time", s.parallel)),
             Line::from(""),
             Line::styled(
                 format!(" Saved in {}", self.config.config_file().display()),
@@ -553,6 +727,25 @@ impl App {
         }
     }
 
+    fn draw_parallel_help(&self, frame: &mut Frame, area: Rect) {
+        let lines = vec![
+            Line::from(format!(
+                " How many tracks to download at the same time ({MIN_PARALLEL} to {MAX_PARALLEL})."
+            )),
+            Line::from(" Albums, playlists and file lists use it. Three is a good start."),
+            Line::from(" More is faster, but YouTube may slow down or refuse many requests."),
+            Line::from(""),
+            Line::styled(
+                " Enter saves. Esc cancels.",
+                Style::new().add_modifier(Modifier::DIM),
+            ),
+        ];
+        frame.render_widget(
+            Paragraph::new(lines).block(Block::bordered().title(" Parallel downloads ")),
+            area,
+        );
+    }
+
     /// Where to find a credential, and where it ends up.
     fn draw_help(&self, frame: &mut Frame, area: Rect, field: Field) {
         let dim = Style::new().add_modifier(Modifier::DIM);
@@ -597,20 +790,104 @@ fn move_selection(state: &mut ListState, len: usize, delta: isize) {
     state.select(Some((current + delta).rem_euclid(len as isize) as usize));
 }
 
-/// Colours log lines by what they report.
+/// Colours log lines by what they report. Track lines start with `[i/N]`, so the markers can
+/// be anywhere in the line.
 fn log_style(line: &str) -> Style {
     let trimmed = line.trim_start();
-    if trimmed.starts_with("error") || trimmed.starts_with("[fail]") {
+    if trimmed.starts_with("error") || trimmed.contains("[fail]") {
         Style::new().fg(Color::Red)
-    } else if trimmed.starts_with("warning") || trimmed.starts_with("[skip]") {
+    } else if trimmed.contains("warning:")
+        || trimmed.contains("[skip]")
+        || trimmed.contains("skipped,")
+    {
         Style::new().fg(Color::Yellow)
-    } else if trimmed.starts_with("saved:") || trimmed.starts_with("Done.") {
+    } else if trimmed.contains("saved:")
+        || trimmed.starts_with("Done.")
+        || trimmed.starts_with("Finished")
+    {
         Style::new().fg(Color::Green)
-    } else if trimmed.starts_with("found:") {
+    } else if trimmed.contains("] match:")
+        || trimmed.contains("] source:")
+        || trimmed.contains("] mp3:")
+    {
         Style::new().add_modifier(Modifier::DIM)
     } else {
         Style::new()
     }
+}
+
+/// Draws the cover as coloured ASCII art in the top-left of `area`.
+fn draw_art(frame: &mut Frame, area: Rect, cover: &Cover, cols: u16, rows: u16) {
+    let lines: Vec<Line> = cover
+        .ascii(cols, rows)
+        .into_iter()
+        .map(|row| {
+            Line::from(
+                row.into_iter()
+                    .map(|cell| {
+                        let [r, g, b] = cell.rgb;
+                        Span::styled(cell.ch.to_string(), Style::new().fg(Color::Rgb(r, g, b)))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// The second line of a track entry: bar, percent, speed, bytes, ETA and stream details.
+fn track_detail(t: &TrackStatus, width: usize) -> String {
+    let Some(tr) = &t.transfer else {
+        return String::new();
+    };
+    let fraction = tr
+        .total
+        .map(|total| tr.downloaded as f64 / total.max(1) as f64);
+    let mut text = format::bar(fraction.unwrap_or(0.0), 12);
+    if let Some(f) = fraction {
+        text.push_str(&format!(" {:>3.0}%", f * 100.0));
+    }
+    if let Some(speed) = tr.speed {
+        text.push_str(&format!("  {}", format::rate(speed)));
+    }
+    text.push_str(&format!("  {}", format::bytes(tr.downloaded)));
+    if let Some(total) = tr.total {
+        text.push_str(&format!(" / {}", format::bytes(total)));
+    }
+    if let Some(eta) = tr.eta_secs {
+        text.push_str(&format!("  ETA {}", format::duration(eta)));
+    }
+    if let Some(f) = &t.format {
+        let details = format_summary(f);
+        // Stream details come last, so they are the first thing cut on a narrow panel.
+        if !details.is_empty() && text.chars().count() + details.chars().count() + 2 <= width {
+            text.push_str(&format!("  {details}"));
+        }
+    }
+    text
+}
+
+/// `opus 133 kbps 48 kHz stereo`.
+fn format_summary(f: &SourceFormat) -> String {
+    let mut parts = Vec::new();
+    if !f.codec.is_empty() {
+        parts.push(f.codec.clone());
+    }
+    if let Some(kbps) = f.bitrate_kbps {
+        parts.push(format!("{kbps:.0} kbps"));
+    }
+    if let Some(hz) = f.sample_rate {
+        parts.push(format::khz(hz));
+    }
+    if let Some(n) = f.channels {
+        parts.push(format::channels(n));
+    }
+    parts.join(" ")
+}
+
+/// Cuts `text` to `width` terminal cells.
+fn fit(text: &str, width: usize) -> String {
+    wrap(text, width).swap_remove(0)
 }
 
 /// Splits `text` into rows no wider than `width` terminal cells.
@@ -645,12 +922,19 @@ fn prompt(action: Action) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::wrap;
+    use super::{fit, wrap};
 
     #[test]
     fn wraps_by_width() {
         assert_eq!(wrap("abcdef", 4), vec!["abcd", "ef"]);
         assert_eq!(wrap("", 4), vec![""]);
         assert_eq!(wrap("abc", 0), vec!["abc"]);
+    }
+
+    #[test]
+    fn fit_cuts_to_width() {
+        assert_eq!(fit("abcdef", 4), "abcd");
+        assert_eq!(fit("ab", 4), "ab");
+        assert_eq!(fit("", 4), "");
     }
 }

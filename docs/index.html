@@ -254,7 +254,7 @@
   <div class="wrap hero">
     <h1>Paste a Spotify link, get tagged MP3s.</h1>
     <p class="lead">
-      spotify-dl looks up each track on Spotify, finds it on YouTube, and saves an MP3 with title, artist,
+      spotify-dl looks up each track on Spotify, finds the album recording on YouTube Music, and saves an MP3 with title, artist,
       album, year and cover art to your Music folder.
     </p>
     <div class="actions">
@@ -293,13 +293,12 @@
             <span class="t">Log</span>
             <div class="ln" data-line>Welcome. Pick an action with the arrow keys and press Enter.</div>
             <div class="ln" data-line>Album: Discovery (14 tracks)</div>
-            <div class="ln" data-line>[1/14] Daft Punk - One More Time</div>
-            <div class="ln" data-line>  found: Daft Punk - One More Time (Official Audio)</div>
-            <div class="ln" data-line>  saved: C:\Users\you\Music\spotify-dl\Daft Punk - One More Time.mp3</div>
-            <div class="ln" data-line>[2/14] Daft Punk - Aerodynamic</div>
-            <div class="ln" data-line>  found: Daft Punk - Aerodynamic (Official Audio)</div>
-            <div class="ln" data-line>  saved: C:\Users\you\Music\spotify-dl\Daft Punk - Aerodynamic.mp3</div>
-            <div class="ln" data-line>[3/14] Daft Punk - Digital Love</div>
+            <div class="ln" data-line>[1/14] Daft Punk - One More Time (5:20)</div>
+            <div class="ln" data-line>[1/14] match: "One More Time", Daft Punk, YouTube Music, score 4.9/5</div>
+            <div class="ln" data-line>[1/14] saved: C:\Users\you\Music\spotify-dl\Daft Punk - Discovery\One More Time.mp3</div>
+            <div class="ln" data-line>[2/14] Daft Punk - Aerodynamic (3:32)</div>
+            <div class="ln" data-line>[2/14] match: "Aerodynamic", Daft Punk, YouTube Music, score 4.8/5</div>
+            <div class="ln" data-line>[3/14] Daft Punk - Digital Love (5:01)</div>
           </div>
         </div>
         <div class="pane">
@@ -315,12 +314,12 @@
     <div class="wrap">
       <div class="head">
         <h2>What it does</h2>
-        <p>One download folder, real ID3 tags, and a menu you can drive from the keyboard.</p>
+        <p>Matching on YouTube Music, parallel downloads, one folder per album, real ID3 tags, and a menu you can drive from the keyboard.</p>
       </div>
       <dl class="feat">
         <div>
           <dt>Songs, albums and playlists</dt>
-          <dd>Paste a link, a <code>spotify:</code> URI or a bare ID. Albums and playlists download track by track, and the log shows each one. Playlists work for ones you own or collaborate on.</dd>
+          <dd>Paste a link, a <code>spotify:</code> URI or a bare ID. Albums and playlists get their own subfolder with a <code>cover.jpg</code>, and the log shows each track. Playlists work for ones you own or collaborate on.</dd>
         </div>
         <div>
           <dt>Search by name</dt>
@@ -335,8 +334,16 @@
           <dd>Every file gets title, artist, album, year and front cover as ID3v2.4 tags, so your player shows them.</dd>
         </div>
         <div>
-          <dt>Length check</dt>
-          <dd>A YouTube result is used only when its length is within 30 seconds of the Spotify track. That filters out most wrong uploads. It also skips some real matches, such as live versions.</dd>
+          <dt>YouTube Music matching</dt>
+          <dd>Each track is looked up on YouTube Music first, and the result must agree with Spotify on title, artist, album and length. If nothing matches well, plain YouTube is used, with a length check, and the log says so. That filters out most wrong uploads. It can also skip real matches, such as live versions.</dd>
+        </div>
+        <div>
+          <dt>Parallel downloads</dt>
+          <dd>Three tracks download at once by default. Change it in Settings, with <code>settings --parallel</code>, or for one run with <code>-j</code>. The limit is 8.</dd>
+        </div>
+        <div>
+          <dt>Live details and cover art</dt>
+          <dd>Progress bars, speed, MB done, ETA, and the source and MP3 bitrate, sample rate and channels. The cover is also drawn as ASCII art in the terminal.</dd>
         </div>
         <div>
           <dt>Menu or command line</dt>
@@ -419,7 +426,9 @@ SPOTIFY_CLIENT_SECRET=your_client_secret</pre></div>
               <tr><td><code>spotify-dl login</code></td><td>Log in to Spotify again.</td></tr>
               <tr><td><code>spotify-dl settings [--set &lt;folder&gt;]</code></td><td>Show or change the download folder.</td></tr>
               <tr><td><code>spotify-dl settings --client-id &lt;id&gt; --client-secret &lt;secret&gt;</code></td><td>Save your Spotify credentials.</td></tr>
+              <tr><td><code>spotify-dl settings --parallel &lt;n&gt;</code></td><td>Save how many tracks download at once (1 to 8).</td></tr>
               <tr><td><code>spotify-dl -p &lt;folder&gt; &lt;command&gt;</code></td><td>Use another folder for this run only.</td></tr>
+              <tr><td><code>spotify-dl -j &lt;n&gt; &lt;command&gt;</code></td><td>Download n tracks at once for this run only.</td></tr>
             </tbody>
           </table>
         </div>
@@ -446,7 +455,8 @@ SPOTIFY_CLIENT_SECRET=your_client_secret</pre></div>
               <tr><td>Client ID</td><td>Settings, or <code>SPOTIFY_CLIENT_ID</code> in <code>.env</code></td><td>Required.</td></tr>
               <tr><td>Client secret</td><td>Settings, or <code>SPOTIFY_CLIENT_SECRET</code> in <code>.env</code></td><td>Required.</td></tr>
               <tr><td>Redirect URI</td><td><code>SPOTIFY_REDIRECT_URI</code> in <code>.env</code></td><td>Optional. Defaults to <code>http://127.0.0.1:5000/callback</code>. Must match your Spotify app.</td></tr>
-              <tr><td>Download folder</td><td>Settings, or <code>settings --set</code></td><td>Press Tab in Settings to complete folder names. Defaults to a <code>spotify-dl</code> folder inside your Music folder.</td></tr>
+              <tr><td>Download folder</td><td>Settings, or <code>settings --set</code></td><td>Press Tab in Settings to complete folder names. Defaults to a <code>spotify-dl</code> folder inside your Music folder. Albums and playlists are saved in subfolders of it.</td></tr>
+              <tr><td>Parallel downloads</td><td>Settings, or <code>settings --parallel</code></td><td>Tracks downloaded at the same time, 1 to 8. Defaults to 3.</td></tr>
             </tbody>
           </table>
         </div>

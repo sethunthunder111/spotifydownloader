@@ -8,8 +8,12 @@ Website: https://sethunthunder111.github.io/spotifydownloader/
 
 - Songs, albums and playlists from a link, URI or ID, or search by "Artist - Title"
 - Batch download from a text file
+- Tracks are matched on YouTube Music first, by title, artist, album and length, so you get the album recording. Plain YouTube is the fallback, and the log says when it is used
+- Parallel downloads (3 at a time by default, up to 8)
+- Albums and playlists get their own subfolder, with `cover.jpg` saved inside
+- Detailed progress while downloading: speed, MB done, ETA, source and MP3 bitrate, sample rate and channels
+- ASCII art of the cover in the terminal
 - ID3v2.4 tags: title, artist, album, year and front cover art
-- YouTube matches must have a duration close to the Spotify track
 - Full-screen terminal UI (run with no arguments) and scriptable subcommands
 
 ## Requirements
@@ -40,10 +44,16 @@ spotify-dl query "Artist - Title"   Search and download the best match
 spotify-dl file <list.txt>          Download every link in a file (# starts a comment)
 spotify-dl login                    Log in to Spotify again
 spotify-dl settings [--set <dir>]   Show or change the download folder
+spotify-dl settings --parallel <n>  Save how many tracks download at once (1 to 8)
 spotify-dl settings --client-id <id> --client-secret <secret>
                                     Save your Spotify credentials
 spotify-dl -p <dir> <command>       Use another download folder for one run
+spotify-dl -j <n> <command>         Download n tracks at once for one run
 ```
+
+Songs, searches and file lists are saved straight into the download folder. An album goes into `<download folder>\Artist - Album\` and a playlist into `<download folder>\<playlist name>\`, each with a `cover.jpg` (or `cover.png`) next to the tracks. A track whose file already exists is skipped, so you can run an album again to fill in the gaps.
+
+The cover art is also embedded in every MP3 as the ID3 front cover, so most players show it without the separate file.
 
 Downloads go to your Music folder in a `spotify-dl` subfolder unless you change it. In the terminal UI, **Settings** lets you pick the folder with Tab completion and enter your Spotify client ID and secret.
 
@@ -73,8 +83,11 @@ cargo clippy --all-targets -- -D warnings
 | `src/tui.rs` | Terminal UI (ratatui) |
 | `src/jobs.rs` | Download pipeline shared by CLI and TUI |
 | `src/spotify.rs` | Spotify Web API client and login flow |
-| `src/youtube.rs` | yt-dlp search and MP3 extraction |
+| `src/youtube.rs` | YouTube Music and YouTube search through yt-dlp, MP3 extraction |
+| `src/matching.rs` | Scores YouTube Music candidates against the Spotify track |
 | `src/tags.rs` | ID3 tag and cover art writing |
+| `src/art.rs` | Turns cover art into coloured ASCII art |
+| `src/format.rs` | Sizes, speeds, durations and progress bars |
 | `src/input.rs` | Link, URI and ID parsing |
 | `src/config.rs` | Saved settings and credentials |
 | `src/paths.rs` | Folder completion for the Settings screen |
@@ -84,6 +97,7 @@ cargo clippy --all-targets -- -D warnings
 ## Notes
 
 - The Node.js version in `legacy/` is no longer maintained.
+- `ffprobe` (part of ffmpeg) is optional. When it is found, the log shows the bitrate, sample rate and channels of each finished MP3.
 - Only download music you have the right to download.
 
 ## License
