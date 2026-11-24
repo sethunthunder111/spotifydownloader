@@ -99,6 +99,23 @@ impl Config {
         )
     }
 
+    /// Saves credentials found in the environment or a `.env` file when none are saved yet,
+    /// so the app keeps working without that file. Returns true if it saved them.
+    pub fn adopt_env_credentials(&mut self) -> bool {
+        let saved = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
+        if saved(&self.data.client_id) || saved(&self.data.client_secret) {
+            return false;
+        }
+        let env = |key: &str| std::env::var(key).ok().filter(|v| !v.trim().is_empty());
+        let (Some(id), Some(secret)) = (env("SPOTIFY_CLIENT_ID"), env("SPOTIFY_CLIENT_SECRET"))
+        else {
+            return false;
+        };
+        self.data.client_id = Some(id.trim().to_string());
+        self.data.client_secret = Some(secret.trim().to_string());
+        self.save().is_ok()
+    }
+
     pub fn saved_client_id(&self) -> &str {
         self.data.client_id.as_deref().unwrap_or("")
     }

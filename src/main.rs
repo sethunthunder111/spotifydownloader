@@ -133,6 +133,7 @@ async fn run() -> Result<()> {
     load_env_files();
     let cli = Cli::parse();
     let mut config = Config::load();
+    config.adopt_env_credentials();
 
     if let Some(Command::Settings {
         set,

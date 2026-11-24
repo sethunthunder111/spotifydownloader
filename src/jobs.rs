@@ -583,9 +583,9 @@ pub async fn run_job(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
 async fn run_job_inner(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
     if settings.client_id.trim().is_empty() || settings.client_secret.trim().is_empty() {
         bail!(
-            "Spotify client ID and secret are not set. Open Settings in the menu to enter them, \
-             run `spotify-dl settings --client-id <id> --client-secret <secret>`, or add \
-             SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to a .env file next to spotify-dl.exe."
+            "Spotify client ID and secret are not set. Open Settings in the menu and enter \
+             them (create a free app at developer.spotify.com/dashboard to get them), or run \
+             `spotify-dl settings --client-id <id> --client-secret <secret>`."
         );
     }
     let mut spotify = SpotifyClient::new(

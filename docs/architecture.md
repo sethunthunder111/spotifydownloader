@@ -100,7 +100,7 @@ Each track logs lines prefixed with `[i/N]`: the header, `match:` (title, artist
 
 ## Tags (`tags.rs`)
 
-Writes ID3v2.4 with title, artist (joined with `/`), album, year, and front cover. The cover is passed in as bytes (tags does no network access) and its MIME type is read from the image's first bytes. It is stored in an `APIC` front-cover frame; it is never a separate file, apart from the `cover.jpg` saved in album and playlist folders.
+Writes ID3v2.3 with title, artist (joined with `/`), album, year, and front cover. The cover is passed in as bytes (tags does no network access) and its MIME type is read from the image's first bytes. It is stored in an `APIC` front-cover frame; it is never a separate file, apart from the `cover.jpg` saved in album and playlist folders.
 
 ## Cover art and formatting (`art.rs`, `format.rs`)
 

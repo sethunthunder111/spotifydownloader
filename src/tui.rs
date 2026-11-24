@@ -130,6 +130,7 @@ pub async fn run(settings: Settings, config: Config) -> Result<()> {
     if settings.id_source == Source::Missing || settings.secret_source == Source::Missing {
         logs.push("Spotify client ID and secret are not set. Open Settings to enter them.".into());
     }
+    let ask = settings.client_id.trim().is_empty() || settings.client_secret.trim().is_empty();
     let mut app = App {
         settings,
         config,
@@ -150,6 +151,9 @@ pub async fn run(settings: Settings, config: Config) -> Result<()> {
         job: None,
         quit: false,
     };
+    if ask {
+        app.ask_for_credentials();
+    }
 
     let mut terminal = ratatui::init();
     let result = app.event_loop(&mut terminal).await;
@@ -353,6 +357,10 @@ impl App {
             self.status = "A download is already running. Wait for it to finish.".into();
             return;
         }
+        if self.needs_credentials() {
+            self.ask_for_credentials();
+            return;
+        }
         self.status.clear();
         self.progress.clear();
         self.active.clear();
@@ -370,6 +378,21 @@ impl App {
     }
 
     // ---------- Settings ----------
+
+    fn needs_credentials(&self) -> bool {
+        self.settings.client_id.trim().is_empty() || self.settings.client_secret.trim().is_empty()
+    }
+
+    /// Opens the entry box for whichever Spotify credential is still missing.
+    fn ask_for_credentials(&mut self) {
+        let field = if self.settings.client_id.trim().is_empty() {
+            Field::ClientId
+        } else {
+            Field::ClientSecret
+        };
+        self.begin_edit(field);
+        self.status = "Enter your Spotify client ID and secret first (free at developer.spotify.com/dashboard).".into();
+    }
 
     fn leave_settings(&mut self) {
         self.status.clear();
@@ -425,6 +448,11 @@ impl App {
         (self.settings.client_secret, self.settings.secret_source) = self.config.client_secret();
         self.settings.download_dir = self.config.download_dir();
         self.settings.parallel = self.config.parallel();
+
+        if matches!(field, Field::ClientId | Field::ClientSecret) && self.needs_credentials() {
+            self.ask_for_credentials();
+            return;
+        }
 
         let overridden = match field {
             Field::Folder | Field::Parallel => false,

@@ -13,7 +13,7 @@ Website: https://sethunthunder111.github.io/spotifydownloader/
 - Albums and playlists get their own subfolder, with `cover.jpg` saved inside
 - Detailed progress while downloading: speed, MB done, ETA, source and MP3 bitrate, sample rate and channels
 - ASCII art of the cover in the terminal
-- ID3v2.4 tags: title, artist, album, year and front cover art
+- ID3v2.3 tags: title, artist, album, year and front cover art
 - ISRC finder for songs and playlists, with CSV and JSON export
 - Full-screen terminal UI (run with no arguments) and scriptable subcommands
 

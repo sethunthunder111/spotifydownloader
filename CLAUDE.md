@@ -30,7 +30,7 @@ CI (`.github/workflows/ci.yml`) runs fmt check, clippy with `-D warnings`, and t
 | `src/spotify.rs` | Spotify Web API client, client-credentials and user auth, login callback |
 | `src/youtube.rs` | `yt-dlp` search (YouTube Music first, YouTube fallback), MP3 extraction, `ffprobe` |
 | `src/matching.rs` | scores YouTube Music candidates against the Spotify track (has unit tests) |
-| `src/tags.rs` | ID3v2.4 tags and cover art (`id3` crate); takes cover bytes, no network |
+| `src/tags.rs` | ID3v2.3 tags (v2.4 shows no cover in Explorer) and cover art (`id3` crate); takes cover bytes, no network |
 | `src/art.rs` | cover image to coloured ASCII art (`image` crate) |
 | `src/format.rs` | bytes, speed, duration, bar, kHz and channel formatting |
 | `src/input.rs` | parses links, URIs and bare IDs; `detect` tells a track link, playlist link, bare ID and search text apart (has unit tests) |
@@ -63,4 +63,4 @@ See `docs/architecture.md` for how the pieces fit together.
 - Do not commit or push unless the user asks.
 - Release builds are produced by `.github/workflows/release.yml` on `v*` tags. Do not create tags without being asked.
 - Never add `Co-Authored-By` or "Generated with Claude Code" lines to commits or PRs (global user rule).
-- Repo owner: `sethunthunder111`. License: MIT. Last release: `v0.1.2`.
+- Repo owner: `sethunthunder111`. License: MIT. Last release: `v0.1.3`.
