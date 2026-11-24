@@ -33,9 +33,18 @@ pub struct Track {
     pub image_url: Option<String>,
     pub duration_ms: u64,
     pub year: Option<String>,
+    /// Full release date as Spotify gives it: `1987`, `1987-11` or `1987-11-12`.
+    pub release_date: Option<String>,
+    /// International Standard Recording Code, when Spotify provides one.
+    pub isrc: Option<String>,
 }
 
 impl Track {
+    /// `https://open.spotify.com/track/<id>`
+    pub fn url(&self) -> String {
+        format!("https://open.spotify.com/track/{}", self.id)
+    }
+
     /// "Artist - Title", the name used for matching, logging and the output file.
     pub fn display_name(&self) -> String {
         let artist = self
@@ -52,6 +61,8 @@ pub struct Playlist {
     pub name: String,
     pub image_url: Option<String>,
     pub tracks: Vec<Track>,
+    /// Items left out because they are local files or no longer available.
+    pub skipped: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +104,12 @@ struct TrackObject {
     kind: Option<String>,
     #[serde(default)]
     is_local: bool,
+    external_ids: Option<ExternalIds>,
+}
+
+#[derive(Deserialize)]
+struct ExternalIds {
+    isrc: Option<String>,
 }
 
 impl TrackObject {
@@ -101,18 +118,20 @@ impl TrackObject {
             return None;
         }
         let id = self.id?;
-        let (album, image_url, year) = match (&self.album, fallback_album) {
+        let (album, image_url, year, release_date) = match (&self.album, fallback_album) {
             (Some(a), _) => (
                 Some(a.name.clone()),
                 a.images.first().map(|i| i.url.clone()),
                 year_of(a.release_date.as_deref()),
+                a.release_date.clone(),
             ),
             (None, Some(alb)) => (
                 Some(alb.name.clone()),
                 alb.image_url.clone(),
                 alb.year.clone(),
+                alb.year.clone(),
             ),
-            (None, None) => (None, None, None),
+            (None, None) => (None, None, None, None),
         };
         Some(Track {
             id,
@@ -122,6 +141,12 @@ impl TrackObject {
             image_url,
             duration_ms: self.duration_ms,
             year,
+            release_date,
+            isrc: self
+                .external_ids
+                .and_then(|e| e.isrc)
+                .map(|i| i.trim().to_uppercase())
+                .filter(|i| !i.is_empty()),
         })
     }
 }
@@ -458,6 +483,7 @@ impl SpotifyClient {
             .await
             .ok();
         let mut tracks = Vec::new();
+        let mut skipped = 0usize;
         let mut offset = 0u32;
         loop {
             let page: serde_json::Value = self
@@ -474,11 +500,14 @@ impl SpotifyClient {
             })?;
             let entries: Vec<PlaylistEntry> = serde_json::from_value(items.clone())?;
             let more = page.get("next").is_some_and(|n| !n.is_null());
+            let before = tracks.len();
+            let count = entries.len();
             tracks.extend(
                 entries
                     .into_iter()
                     .filter_map(|e| e.item.or(e.track).and_then(|t| t.into_track(None))),
             );
+            skipped += count - (tracks.len() - before);
             if !more {
                 break;
             }
@@ -492,7 +521,38 @@ impl SpotifyClient {
             name,
             image_url,
             tracks,
+            skipped,
         })
+    }
+
+    /// Looks up the ISRC of every track that does not have one yet. Playlist responses can
+    /// leave it out, while the plain track endpoint always includes it.
+    pub async fn fill_isrcs(&mut self, tracks: &mut [Track]) -> Result<()> {
+        #[derive(Deserialize)]
+        struct Batch {
+            tracks: Vec<Option<TrackObject>>,
+        }
+        let missing: Vec<usize> = (0..tracks.len())
+            .filter(|&i| tracks[i].isrc.is_none())
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let token = self.app_token().await?;
+        for chunk in missing.chunks(50) {
+            let ids: Vec<&str> = chunk.iter().map(|&i| tracks[i].id.as_str()).collect();
+            let batch: Batch = self
+                .get(&token, "/tracks", &[("ids", ids.join(","))])
+                .await?;
+            for (&i, found) in chunk.iter().zip(batch.tracks) {
+                tracks[i].isrc = found
+                    .and_then(|t| t.external_ids)
+                    .and_then(|e| e.isrc)
+                    .map(|v| v.trim().to_uppercase())
+                    .filter(|v| !v.is_empty());
+            }
+        }
+        Ok(())
     }
 
     /// Returns the best search hit for a free-text query.

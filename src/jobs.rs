@@ -14,7 +14,8 @@ use tokio::task::JoinSet;
 use crate::art::Cover;
 use crate::config::{Source, clamp_parallel};
 use crate::format;
-use crate::input::{Kind, parse_id};
+use crate::input::{Detected, Kind, detect, parse_id};
+use crate::isrc;
 use crate::spotify::{SpotifyClient, Track};
 use crate::tags;
 use crate::youtube::{self, Mp3Info, SourceFormat, Step, Transfer};
@@ -355,6 +356,28 @@ pub enum Job {
     Search(String),
     File(PathBuf),
     Login,
+    /// Look up ISRC codes for a song or a playlist, and optionally export them.
+    Isrc(IsrcRequest),
+}
+
+/// Where an ISRC export goes.
+#[derive(Clone, Debug)]
+pub enum Export {
+    /// Do not write this format.
+    Off,
+    /// Write `<name> - ISRC.<ext>` in the download folder.
+    Default,
+    /// Like `Default`, but only for playlists (the terminal UI uses this for long lists).
+    PlaylistOnly,
+    Path(PathBuf),
+}
+
+#[derive(Clone, Debug)]
+pub struct IsrcRequest {
+    /// A Spotify link, URI or ID of a song or playlist, or a song name to search for.
+    pub input: String,
+    pub csv: Export,
+    pub json: Export,
 }
 
 /// Shared by every track of a job.
@@ -394,6 +417,149 @@ impl Ctx {
             Err(e) => self.sink.log(format!("warning: {e:#}")),
         }
         Some(bytes)
+    }
+}
+
+// ---------- ISRC lookup ----------
+
+async fn run_isrc(
+    spotify: &mut SpotifyClient,
+    sink: &Sink,
+    base: &Path,
+    request: IsrcRequest,
+) -> Result<()> {
+    sink.progress("Looking up on Spotify...");
+    let listing = match detect(&request.input) {
+        Detected::Known(Kind::Track, id) => single_listing(spotify.track(&id).await?),
+        Detected::Known(Kind::Playlist, id) => playlist_listing(spotify, sink, &id).await?,
+        Detected::Known(Kind::Album, _) => {
+            bail!("ISRC lookup works for songs and playlists, not albums")
+        }
+        Detected::BareId(id) => match spotify.track(&id).await {
+            Ok(track) => single_listing(track),
+            // Spotify answers "not found" when a playlist ID is used as a track ID.
+            Err(track_error) => playlist_listing(spotify, sink, &id).await.map_err(|e| {
+                anyhow!("{id} is neither a track ({track_error:#}) nor a playlist ({e:#})")
+            })?,
+        },
+        Detected::Text(query) => {
+            sink.progress(format!("Searching Spotify for \"{query}\"..."));
+            let track = spotify
+                .search_track(&query)
+                .await?
+                .ok_or_else(|| anyhow!("no Spotify track matched \"{query}\""))?;
+            single_listing(track)
+        }
+    };
+
+    print_listing(sink, &listing);
+
+    let exports = [
+        ("CSV", "csv", &request.csv),
+        ("JSON", "json", &request.json),
+    ];
+    for (label, ext, export) in exports {
+        let Some(path) = export_path(export, ext, base, &listing) else {
+            continue;
+        };
+        let text = if ext == "csv" {
+            isrc::csv(&listing)
+        } else {
+            isrc::json(&listing)?
+        };
+        isrc::write_file(&path, &text)?;
+        sink.log(format!("{label} saved: {}", path.display()));
+    }
+    Ok(())
+}
+
+fn single_listing(track: Track) -> isrc::Listing {
+    isrc::Listing {
+        kind: isrc::Kind::Track,
+        name: track.display_name(),
+        url: Some(track.url()),
+        tracks: vec![track],
+        skipped: 0,
+    }
+}
+
+async fn playlist_listing(
+    spotify: &mut SpotifyClient,
+    sink: &Sink,
+    id: &str,
+) -> Result<isrc::Listing> {
+    sink.progress("Loading the playlist from Spotify...");
+    let mut playlist = spotify.playlist(id).await?;
+    sink.progress("Checking for missing ISRC codes...");
+    spotify.fill_isrcs(&mut playlist.tracks).await?;
+    Ok(isrc::Listing {
+        kind: isrc::Kind::Playlist,
+        name: playlist.name,
+        url: Some(format!("https://open.spotify.com/playlist/{id}")),
+        tracks: playlist.tracks,
+        skipped: playlist.skipped,
+    })
+}
+
+/// Where to write one export format, or `None` if it should not be written.
+fn export_path(
+    export: &Export,
+    ext: &str,
+    base: &Path,
+    listing: &isrc::Listing,
+) -> Option<PathBuf> {
+    let default = || base.join(format!("{} - ISRC.{ext}", folder_name(&listing.name)));
+    match export {
+        Export::Off => None,
+        Export::Default => Some(default()),
+        Export::PlaylistOnly => (listing.kind == isrc::Kind::Playlist).then(default),
+        Export::Path(path) => Some(path.clone()),
+    }
+}
+
+fn print_listing(sink: &Sink, listing: &isrc::Listing) {
+    match listing.kind {
+        isrc::Kind::Track => {
+            let track = &listing.tracks[0];
+            match &track.isrc {
+                Some(code) => sink.log(format!("ISRC: {code}")),
+                None => sink.log("ISRC: not available from Spotify for this track"),
+            }
+            sink.log(track.display_name());
+            let album = track.album.as_deref().unwrap_or("unknown album");
+            let date = track.release_date.as_deref().unwrap_or("unknown date");
+            sink.log(format!(
+                "Album: {album} ({date}), {}",
+                format::duration(track.duration_ms / 1000)
+            ));
+            sink.log(track.url());
+        }
+        isrc::Kind::Playlist => {
+            sink.log(format!(
+                "Playlist: {} ({} tracks)",
+                listing.name,
+                listing.tracks.len()
+            ));
+            for (i, track) in listing.tracks.iter().enumerate() {
+                sink.log(format!(
+                    "{:>4}  {:<12}  {}",
+                    i + 1,
+                    track.isrc.as_deref().unwrap_or("(none)"),
+                    track.display_name()
+                ));
+            }
+            sink.log(format!(
+                "ISRC found for {} of {} tracks.",
+                listing.with_isrc(),
+                listing.tracks.len()
+            ));
+            if listing.skipped > 0 {
+                sink.log(format!(
+                    "{} local or unavailable items were skipped: they have no ISRC.",
+                    listing.skipped
+                ));
+            }
+        }
     }
 }
 
@@ -441,6 +607,13 @@ async fn run_job_inner(job: Job, settings: &Settings, sink: &Sink) -> Result<()>
         sink.log("Spotify login saved. Playlist downloads will use it from now on.");
         return Ok(());
     }
+    // ISRC lookups only talk to Spotify, so they skip the yt-dlp and ffmpeg checks.
+    let job = match job {
+        Job::Isrc(request) => {
+            return run_isrc(&mut spotify, sink, &settings.download_dir, request).await;
+        }
+        other => other,
+    };
 
     sink.progress("Checking yt-dlp and ffmpeg...");
     youtube::check_tools().await?;
@@ -535,7 +708,7 @@ async fn run_job_inner(job: Job, settings: &Settings, sink: &Sink) -> Result<()>
             sink.log(format!("File: {} tracks", tracks.len()));
             download_all(&ctx, base, tracks, parallel).await?;
         }
-        Job::Login => unreachable!("handled above"),
+        Job::Login | Job::Isrc(_) => unreachable!("handled above"),
     }
     Ok(())
 }

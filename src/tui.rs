@@ -18,7 +18,7 @@ use unicode_width::UnicodeWidthChar;
 use crate::art::Cover;
 use crate::config::{Config, MAX_PARALLEL, MIN_PARALLEL, Source, describe};
 use crate::format;
-use crate::jobs::{self, Job, Settings, Sink, TrackStatus, run_job};
+use crate::jobs::{self, Export, IsrcRequest, Job, Settings, Sink, TrackStatus, run_job};
 use crate::paths::{Completion, expand_home};
 use crate::youtube::SourceFormat;
 
@@ -42,6 +42,7 @@ enum Action {
     Playlist,
     Search,
     File,
+    Isrc,
     Login,
     Settings,
     Quit,
@@ -53,6 +54,7 @@ const MENU: &[(&str, Action)] = &[
     ("Download playlist", Action::Playlist),
     ("Search & download", Action::Search),
     ("Download from file", Action::File),
+    ("Find ISRC code", Action::Isrc),
     ("Log in to Spotify", Action::Login),
     ("Settings", Action::Settings),
     ("Quit", Action::Quit),
@@ -335,6 +337,12 @@ impl App {
             Action::Playlist => Job::Playlist(text),
             Action::Search => Job::Search(text),
             Action::File => Job::File(PathBuf::from(text.trim_matches('"'))),
+            // Playlists are long, so they are also saved as CSV and JSON files.
+            Action::Isrc => Job::Isrc(IsrcRequest {
+                input: text,
+                csv: Export::PlaylistOnly,
+                json: Export::PlaylistOnly,
+            }),
             Action::Login | Action::Settings | Action::Quit => return,
         };
         self.start(job);
@@ -802,6 +810,7 @@ fn log_style(line: &str) -> Style {
     {
         Style::new().fg(Color::Yellow)
     } else if trimmed.contains("saved:")
+        || trimmed.starts_with("ISRC:")
         || trimmed.starts_with("Done.")
         || trimmed.starts_with("Finished")
     {
@@ -916,6 +925,7 @@ fn prompt(action: Action) -> &'static str {
         Action::Playlist => "Playlist URL, URI or ID",
         Action::Search => "Search (Artist - Title)",
         Action::File => "Path to list file",
+        Action::Isrc => "Song or playlist link, or a song name",
         Action::Login | Action::Settings | Action::Quit => "",
     }
 }

@@ -284,6 +284,7 @@
               <li>Download playlist</li>
               <li>Search &amp; download</li>
               <li>Download from file</li>
+              <li>Find ISRC code</li>
               <li>Log in to Spotify</li>
               <li>Settings</li>
               <li>Quit</li>
@@ -348,6 +349,10 @@
         <div>
           <dt>Menu or command line</dt>
           <dd>Run it with no arguments for a full-screen menu, or use subcommands in scripts.</dd>
+        </div>
+        <div>
+          <dt>ISRC finder</dt>
+          <dd>Look up the ISRC code of a song, or list the codes of a whole playlist and save them as CSV or JSON. It only talks to Spotify, so it needs no yt-dlp or ffmpeg.</dd>
         </div>
         <div>
           <dt>One exe</dt>
@@ -423,6 +428,8 @@ SPOTIFY_CLIENT_SECRET=your_client_secret</pre></div>
               <tr><td><code>spotify-dl playlist &lt;link|uri|id&gt;</code></td><td>Download a playlist you own or collaborate on.</td></tr>
               <tr><td><code>spotify-dl query "Artist - Title"</code></td><td>Search Spotify and download the best match.</td></tr>
               <tr><td><code>spotify-dl file list.txt</code></td><td>Download every track listed in a text file.</td></tr>
+              <tr><td><code>spotify-dl isrc &lt;link|uri|id|name&gt;</code></td><td>Show the ISRC code of a song, or list a playlist's codes.</td></tr>
+              <tr><td><code>spotify-dl isrc &lt;...&gt; --csv [file] --json [file]</code></td><td>Also save the result as CSV or JSON.</td></tr>
               <tr><td><code>spotify-dl login</code></td><td>Log in to Spotify again.</td></tr>
               <tr><td><code>spotify-dl settings [--set &lt;folder&gt;]</code></td><td>Show or change the download folder.</td></tr>
               <tr><td><code>spotify-dl settings --client-id &lt;id&gt; --client-secret &lt;secret&gt;</code></td><td>Save your Spotify credentials.</td></tr>

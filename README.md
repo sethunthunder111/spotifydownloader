@@ -14,6 +14,7 @@ Website: https://sethunthunder111.github.io/spotifydownloader/
 - Detailed progress while downloading: speed, MB done, ETA, source and MP3 bitrate, sample rate and channels
 - ASCII art of the cover in the terminal
 - ID3v2.4 tags: title, artist, album, year and front cover art
+- ISRC finder for songs and playlists, with CSV and JSON export
 - Full-screen terminal UI (run with no arguments) and scriptable subcommands
 
 ## Requirements
@@ -42,6 +43,9 @@ spotify-dl album <link|uri|id>      Download an album
 spotify-dl playlist <link|uri|id>   Download a playlist (needs login)
 spotify-dl query "Artist - Title"   Search and download the best match
 spotify-dl file <list.txt>          Download every link in a file (# starts a comment)
+spotify-dl isrc <link|uri|id|name>  Show the ISRC code of a song, or list a playlist's ISRCs
+spotify-dl isrc <...> --csv [file] --json [file]
+                                    Also save the result as CSV and/or JSON
 spotify-dl login                    Log in to Spotify again
 spotify-dl settings [--set <dir>]   Show or change the download folder
 spotify-dl settings --parallel <n>  Save how many tracks download at once (1 to 8)
@@ -54,6 +58,22 @@ spotify-dl -j <n> <command>         Download n tracks at once for one run
 Songs, searches and file lists are saved straight into the download folder. An album goes into `<download folder>\Artist - Album\` and a playlist into `<download folder>\<playlist name>\`, each with a `cover.jpg` (or `cover.png`) next to the tracks. A track whose file already exists is skipped, so you can run an album again to fill in the gaps.
 
 The cover art is also embedded in every MP3 as the ID3 front cover, so most players show it without the separate file.
+
+### ISRC codes
+
+An ISRC identifies one recording, which makes it useful for matching tracks across services. `spotify-dl isrc` accepts a song or playlist link, URI or ID, or a song name to search for. Albums are not supported.
+
+```text
+spotify-dl isrc https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC
+spotify-dl isrc "Daft Punk - One More Time" --csv
+spotify-dl isrc <playlist link> --csv my-list.csv --json my-list.json
+```
+
+A playlist prints one line per track. `--csv` and `--json` save the result; without a file name they write `<name> - ISRC.csv` or `.json` in the download folder. Put the link or name before the flags. In the terminal UI, **Find ISRC code** does the same and always saves both files for playlists.
+
+The CSV starts with a UTF-8 byte order mark so Excel reads accented names correctly, and cells that start with `=`, `+` or `@` get a leading `'` so spreadsheets do not run them. The JSON has the playlist name and link, counts, and one object per track with `isrc` (or `null`), title, artists, album, release date, duration and Spotify link.
+
+Spotify does not give an ISRC for local files or unavailable items, so those are skipped and counted. Playlists need your Spotify login, and Spotify only lists tracks for playlists you own or collaborate on.
 
 Downloads go to your Music folder in a `spotify-dl` subfolder unless you change it. In the terminal UI, **Settings** lets you pick the folder with Tab completion and enter your Spotify client ID and secret.
 
@@ -89,6 +109,7 @@ cargo clippy --all-targets -- -D warnings
 | `src/art.rs` | Turns cover art into coloured ASCII art |
 | `src/format.rs` | Sizes, speeds, durations and progress bars |
 | `src/input.rs` | Link, URI and ID parsing |
+| `src/isrc.rs` | ISRC lookup results and their CSV and JSON export |
 | `src/config.rs` | Saved settings and credentials |
 | `src/paths.rs` | Folder completion for the Settings screen |
 | `legacy/` | The original Node.js version, kept for reference |

@@ -94,6 +94,10 @@ HTTP 429 responses are retried up to 3 times using the `Retry-After` header.
 
 Each track logs lines prefixed with `[i/N]`: the header, `match:` (title, artists, album, length, source, score), `source:` (container and codec, kbps, kHz, channels, size), `saved:` and `mp3:` (probe results, time taken and average speed).
 
+## ISRC lookup (`isrc.rs`, `Job::Isrc`)
+
+`spotify-dl isrc` reads the ISRC from each track's `external_ids`. `input::detect` decides what the input is: a track or playlist link, a bare ID (tried as a track first, then as a playlist) or text to search for. Playlist responses can leave `external_ids` out, so `SpotifyClient::fill_isrcs` looks up any missing ones with `/tracks?ids=`, 50 at a time. The job never calls yt-dlp or ffmpeg. `isrc.rs` builds the `Listing` and writes it as CSV (UTF-8 with a byte order mark, formula-safe cells) or JSON.
+
 ## Tags (`tags.rs`)
 
 Writes ID3v2.4 with title, artist (joined with `/`), album, year, and front cover. The cover is passed in as bytes (tags does no network access) and its MIME type is read from the image's first bytes. It is stored in an `APIC` front-cover frame; it is never a separate file, apart from the `cover.jpg` saved in album and playlist folders.

@@ -33,7 +33,8 @@ CI (`.github/workflows/ci.yml`) runs fmt check, clippy with `-D warnings`, and t
 | `src/tags.rs` | ID3v2.4 tags and cover art (`id3` crate); takes cover bytes, no network |
 | `src/art.rs` | cover image to coloured ASCII art (`image` crate) |
 | `src/format.rs` | bytes, speed, duration, bar, kHz and channel formatting |
-| `src/input.rs` | parses links, URIs and bare IDs (has unit tests) |
+| `src/input.rs` | parses links, URIs and bare IDs; `detect` tells a track link, playlist link, bare ID and search text apart (has unit tests) |
+| `src/isrc.rs` | ISRC lookup results (`Listing`) and CSV/JSON export (has unit tests) |
 | `src/config.rs` | saved settings in `%APPDATA%\spotify-dl\config.json` (download folder, credentials, `parallel` 1 to 8) |
 | `docs/` | landing page (`index.html`) and developer docs |
 | `dist/` | local release copy of the exe (gitignored) |

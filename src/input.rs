@@ -70,6 +70,33 @@ pub fn parse_id(input: &str, kind: Kind) -> Result<String> {
     )
 }
 
+/// What a piece of user input points at.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Detected {
+    /// A link or URI that names its kind.
+    Known(Kind, String),
+    /// A bare 22-character ID: it could be a track or a playlist.
+    BareId(String),
+    /// Anything else, for example a song name to search for.
+    Text(String),
+}
+
+/// Works out whether `input` is a Spotify link or URI (and of what kind), a bare ID, or text.
+pub fn detect(input: &str) -> Detected {
+    let input = input.trim();
+    if input.starts_with("spotify:") || input.contains("spotify.com/") {
+        for kind in [Kind::Track, Kind::Playlist, Kind::Album] {
+            if let Ok(id) = parse_id(input, kind) {
+                return Detected::Known(kind, id);
+            }
+        }
+    }
+    if is_spotify_id(input) {
+        return Detected::BareId(input.to_string());
+    }
+    Detected::Text(input.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,6 +131,25 @@ mod tests {
         let url = format!("https://open.spotify.com/album/{ID}");
         assert!(parse_id(&url, Kind::Track).is_err());
         assert!(parse_id("spotify:album:", Kind::Album).is_err());
+    }
+
+    #[test]
+    fn detects_what_the_input_is() {
+        let url = format!("https://open.spotify.com/playlist/{ID}?si=x");
+        assert_eq!(detect(&url), Detected::Known(Kind::Playlist, ID.into()));
+        assert_eq!(
+            detect(&format!("spotify:track:{ID}")),
+            Detected::Known(Kind::Track, ID.into())
+        );
+        assert_eq!(
+            detect(&format!("open.spotify.com/album/{ID}")),
+            Detected::Known(Kind::Album, ID.into())
+        );
+        assert_eq!(detect(ID), Detected::BareId(ID.into()));
+        assert_eq!(
+            detect("  Daft Punk - One More Time "),
+            Detected::Text("Daft Punk - One More Time".into())
+        );
     }
 
     #[test]

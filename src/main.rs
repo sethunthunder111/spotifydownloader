@@ -6,6 +6,7 @@ mod art;
 mod config;
 mod format;
 mod input;
+mod isrc;
 mod jobs;
 mod matching;
 mod paths;
@@ -21,7 +22,7 @@ use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
 use config::{Config, MAX_PARALLEL, MIN_PARALLEL, clamp_parallel, describe};
-use jobs::{Job, Settings, Sink, run_job};
+use jobs::{Export, IsrcRequest, Job, Settings, Sink, run_job};
 
 const DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:5000/callback";
 
@@ -73,6 +74,28 @@ enum Command {
     },
     /// Log in to Spotify (needed for playlists)
     Login,
+    /// Find ISRC codes for a song or a playlist, and export them as CSV or JSON
+    Isrc {
+        /// Song or playlist link, URI or ID, or a song name to search for
+        input: String,
+        /// Save a CSV file. Give a file name, or leave it out to use "<name> - ISRC.csv" in the
+        /// download folder
+        #[arg(long, value_name = "FILE", num_args = 0..=1)]
+        csv: Option<Option<PathBuf>>,
+        /// Save a JSON file. Give a file name, or leave it out to use "<name> - ISRC.json" in
+        /// the download folder
+        #[arg(long, value_name = "FILE", num_args = 0..=1)]
+        json: Option<Option<PathBuf>>,
+    },
+}
+
+/// Turns an optional `--csv [FILE]` style flag into an export target.
+fn export_target(flag: Option<Option<PathBuf>>) -> Export {
+    match flag {
+        None => Export::Off,
+        Some(None) => Export::Default,
+        Some(Some(path)) => Export::Path(path),
+    }
 }
 
 #[tokio::main]
@@ -150,6 +173,11 @@ async fn run() -> Result<()> {
         Some(Command::Query { query }) => Job::Search(query),
         Some(Command::File { path }) => Job::File(path),
         Some(Command::Login) => Job::Login,
+        Some(Command::Isrc { input, csv, json }) => Job::Isrc(IsrcRequest {
+            input,
+            csv: export_target(csv),
+            json: export_target(json),
+        }),
         Some(Command::Settings { .. }) => unreachable!("handled above"),
     };
     run_job(job, &settings, &Sink::stdout()).await
