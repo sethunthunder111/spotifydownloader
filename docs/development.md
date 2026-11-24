@@ -30,7 +30,12 @@ cargo build --release              # target\release\spotify-dl.exe
 Unit tests cover pure logic:
 
 - `input.rs`: link, URI, and ID parsing, including locale prefixes and wrong-kind rejection.
-- `jobs.rs`: filename sanitizing.
+- `jobs.rs`: filename and folder-name sanitizing.
+- `format.rs`: sizes, speeds, durations, bars.
+- `art.rs`: ASCII rendering of cover art.
+- `matching.rs`: scoring of YouTube Music candidates.
+- `youtube.rs`: parsing of yt-dlp progress lines.
+- `tags.rs`: image type detection.
 - `paths.rs`: folder completion (shared prefix, cycling, case-insensitive matching).
 - `config.rs`: environment values win over saved credentials.
 

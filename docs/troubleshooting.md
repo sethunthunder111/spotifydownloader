@@ -29,8 +29,17 @@ winget install Gyan.FFmpeg
 
 Or place `yt-dlp.exe` and `ffmpeg.exe` in the same folder as `spotify-dl.exe`. Open a new terminal after installing so PATH is refreshed.
 
-**`no YouTube match ... with a similar duration`**
-No result was within 30 seconds of the Spotify track length. This avoids wrong uploads, but it also skips some tracks, such as live versions. Search by hand, then download the URL with `yt-dlp` if you need that exact version.
+**`no YouTube Music or YouTube match ... with a similar length`**
+YouTube Music had no song scoring at least 3.0 out of 5, and plain YouTube had nothing within 30 seconds of the Spotify length. This avoids wrong uploads, but it also skips some tracks, such as live versions. Search by hand, then download the URL with `yt-dlp` if you need that exact version.
+
+**`no good YouTube Music match, using a plain YouTube result instead`**
+Not an error. The track is not on YouTube Music as a song, or its title, artist or length did not match, so the first plain YouTube result of a similar length is used. Those are often music videos, which may have intros or different mixes.
+
+**Downloads are slow or fail with several at once**
+Lower the number of parallel downloads with `spotify-dl settings --parallel 1`, or use `-j 1` for one run.
+
+**Where is the album art?**
+It is embedded in every MP3 as the front cover. Albums and playlists also get a `cover.jpg` (or `cover.png`) in their folder. The ASCII art in the terminal is only a preview.
 
 **`yt-dlp failed: ...`**
 YouTube changes often break yt-dlp. Update it:

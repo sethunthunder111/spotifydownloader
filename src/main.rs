@@ -2,9 +2,12 @@
 //!
 //! Run without arguments for the terminal UI, or use a subcommand for scripting.
 
+mod art;
 mod config;
+mod format;
 mod input;
 mod jobs;
+mod matching;
 mod paths;
 mod spotify;
 mod tags;
@@ -14,10 +17,10 @@ mod youtube;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
-use config::{Config, describe};
+use config::{Config, MAX_PARALLEL, MIN_PARALLEL, clamp_parallel, describe};
 use jobs::{Job, Settings, Sink, run_job};
 
 const DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:5000/callback";
@@ -32,6 +35,10 @@ struct Cli {
     /// Download folder for this run only (does not change the saved setting)
     #[arg(short = 'p', long = "path", global = true)]
     path: Option<PathBuf>,
+
+    /// Tracks to download at the same time, 1 to 8 (this run only)
+    #[arg(short = 'j', long = "jobs", global = true, value_name = "N")]
+    jobs: Option<usize>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -60,6 +67,9 @@ enum Command {
         /// Save your Spotify app's client secret (it may end up in your shell history)
         #[arg(long)]
         client_secret: Option<String>,
+        /// Save how many tracks are downloaded at the same time, 1 to 8
+        #[arg(long, value_name = "N")]
+        parallel: Option<usize>,
     },
     /// Log in to Spotify (needed for playlists)
     Login,
@@ -105,6 +115,7 @@ async fn run() -> Result<()> {
         set,
         client_id,
         client_secret,
+        parallel,
     }) = &cli.command
     {
         return show_or_set_settings(
@@ -112,6 +123,7 @@ async fn run() -> Result<()> {
             set.clone(),
             client_id.as_deref(),
             client_secret.as_deref(),
+            *parallel,
         );
     }
 
@@ -127,6 +139,7 @@ async fn run() -> Result<()> {
         redirect_uri: std::env::var("SPOTIFY_REDIRECT_URI")
             .unwrap_or_else(|_| DEFAULT_REDIRECT_URI.to_string()),
         download_dir: cli.path.clone().unwrap_or_else(|| config.download_dir()),
+        parallel: cli.jobs.map_or_else(|| config.parallel(), clamp_parallel),
     };
 
     let job = match cli.command {
@@ -139,7 +152,7 @@ async fn run() -> Result<()> {
         Some(Command::Login) => Job::Login,
         Some(Command::Settings { .. }) => unreachable!("handled above"),
     };
-    run_job(job, &settings, &Sink::Stdout).await
+    run_job(job, &settings, &Sink::stdout()).await
 }
 
 fn show_or_set_settings(
@@ -147,6 +160,7 @@ fn show_or_set_settings(
     set: Option<PathBuf>,
     client_id: Option<&str>,
     client_secret: Option<&str>,
+    parallel: Option<usize>,
 ) -> Result<()> {
     let mut changed = false;
     if let Some(path) = set {
@@ -161,10 +175,18 @@ fn show_or_set_settings(
         config.set_client_secret(secret)?;
         changed = true;
     }
+    if let Some(n) = parallel {
+        if !(MIN_PARALLEL..=MAX_PARALLEL).contains(&n) {
+            bail!("--parallel must be between {MIN_PARALLEL} and {MAX_PARALLEL}");
+        }
+        config.set_parallel(n)?;
+        changed = true;
+    }
     if changed {
         println!("Saved.");
     }
     println!("Download folder: {}", config.download_dir().display());
+    println!("Parallel:        {} tracks at a time", config.parallel());
     println!("Config file:     {}", config.config_file().display());
     let (id, id_source) = config.client_id();
     let (secret, secret_source) = config.client_secret();

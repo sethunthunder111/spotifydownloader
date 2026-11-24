@@ -48,6 +48,13 @@ impl Track {
 }
 
 #[derive(Debug, Clone)]
+pub struct Playlist {
+    pub name: String,
+    pub image_url: Option<String>,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Album {
     pub name: String,
     pub image_url: Option<String>,
@@ -135,6 +142,13 @@ struct AlbumResponse {
     #[serde(default)]
     images: Vec<Image>,
     release_date: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PlaylistMeta {
+    name: String,
+    #[serde(default)]
+    images: Vec<Image>,
 }
 
 #[derive(Deserialize)]
@@ -431,8 +445,18 @@ impl SpotifyClient {
         Ok(Album { tracks, ..header })
     }
 
-    pub async fn playlist(&mut self, id: &str) -> Result<Vec<Track>> {
+    pub async fn playlist(&mut self, id: &str) -> Result<Playlist> {
         let token = self.user_token().await?;
+        // The name and cover are only used for the folder and display, so a failure here is
+        // not fatal: the track list below reports any real access problem.
+        let meta: Option<PlaylistMeta> = self
+            .get(
+                &token,
+                &format!("/playlists/{id}"),
+                &[("fields", "name,images(url)".into())],
+            )
+            .await
+            .ok();
         let mut tracks = Vec::new();
         let mut offset = 0u32;
         loop {
@@ -460,7 +484,15 @@ impl SpotifyClient {
             }
             offset += 50;
         }
-        Ok(tracks)
+        let (name, image_url) = match meta {
+            Some(m) => (m.name, m.images.first().map(|i| i.url.clone())),
+            None => (format!("Playlist {id}"), None),
+        };
+        Ok(Playlist {
+            name,
+            image_url,
+            tracks,
+        })
     }
 
     /// Returns the best search hit for a free-text query.
