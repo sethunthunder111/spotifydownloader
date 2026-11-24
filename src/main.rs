@@ -64,10 +64,30 @@ async fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");
+            pause_if_console_would_close();
             ExitCode::FAILURE
         }
     }
 }
+
+/// When the exe is double-clicked, Windows opens a console that vanishes as soon as the
+/// program exits, so the user never sees the error. Wait for Enter in that case.
+#[cfg(windows)]
+fn pause_if_console_would_close() {
+    unsafe extern "system" {
+        fn GetConsoleProcessList(process_list: *mut u32, process_count: u32) -> u32;
+    }
+    let mut pids = [0u32; 2];
+    // SAFETY: `pids` is a valid buffer of 2 elements, matching the count passed.
+    let attached = unsafe { GetConsoleProcessList(pids.as_mut_ptr(), 2) };
+    if attached == 1 {
+        eprintln!("\nPress Enter to close this window.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+}
+
+#[cfg(not(windows))]
+fn pause_if_console_would_close() {}
 
 async fn run() -> Result<()> {
     load_env_files();
