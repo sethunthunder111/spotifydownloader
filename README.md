@@ -2,7 +2,7 @@
 
 Download Spotify tracks, albums and playlists as tagged MP3 files. Written in Rust, shipped as a single Windows exe with a terminal UI.
 
-Landing page: [`docs/index.html`](docs/index.html) (publish with GitHub Pages).
+Website: https://sethunthunder111.github.io/spotifydownloader/
 
 ## Features
 

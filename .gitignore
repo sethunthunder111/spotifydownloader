@@ -21,3 +21,7 @@ legacy/spotify-dl.exe
 Thumbs.db
 .vscode/
 .idea/
+
+# Local AI assistant notes
+CLAUDE.md
+.claude/
