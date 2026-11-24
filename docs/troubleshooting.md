@@ -2,8 +2,11 @@
 
 ## Setup
 
-**`SPOTIFY_CLIENT_ID is not set`**
-Create `.env` next to `spotify-dl.exe` (copy `.env.example`) and fill in both values. Or set them as environment variables.
+**`Spotify client ID and secret are not set`**
+Open **Settings** in the app and enter both values. Or create `.env` next to `spotify-dl.exe` (copy `.env.example`) and fill them in, or set them as environment variables. From the command line: `spotify-dl settings --client-id <id> --client-secret <secret>`.
+
+**I changed the client ID in Settings but nothing changed**
+A `.env` file or an environment variable overrides saved values. Settings shows `(from .env or environment)` next to a value that is being overridden. Edit or delete that `.env` entry.
 
 **`Spotify rejected the client credentials`**
 The client ID or secret is wrong. Copy them again from the Spotify developer dashboard. Rotate the secret there if it was ever shared.

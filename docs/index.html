@@ -216,8 +216,8 @@
     th, td { text-align: left; vertical-align: top; padding: 0.8rem 1.2rem 0.8rem 0; border-top: 1px solid var(--rule); }
     thead th { border-top: 0; padding-top: 0; color: var(--muted); font-weight: 600; font-size: 0.9rem; }
     td:last-child, th:last-child { padding-right: 0; }
-    .cmd code { color: var(--ink); white-space: nowrap; }
-    @media (max-width: 560px) { .cmd code { white-space: normal; overflow-wrap: anywhere; } }
+    td code { overflow-wrap: break-word; }
+    .cmd code { color: var(--ink); }
     .after { margin-top: 1.75rem; max-width: var(--measure); }
     .after + .after { margin-top: 1rem; }
     .notice { padding: 0.2rem 0 0.2rem 1.1rem; border-left: 3px solid var(--cobalt); }
@@ -382,7 +382,8 @@ winget install Gyan.FFmpeg</pre></div>
         <li>
           <div>
             <h3>Add your credentials</h3>
-            <p>Copy <code>.env.example</code> to <code>.env</code> next to the exe. Paste in the client ID and client secret from your Spotify app.</p>
+            <p>Start spotify-dl, open <strong>Settings</strong>, and enter the client ID and client secret from your Spotify app. They are saved for next time.</p>
+            <p>Prefer a file? Copy <code>.env.example</code> to <code>.env</code> next to the exe instead:</p>
             <div class="codebox"><pre class="code">SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret</pre></div>
           </div>
@@ -417,6 +418,7 @@ SPOTIFY_CLIENT_SECRET=your_client_secret</pre></div>
               <tr><td><code>spotify-dl file list.txt</code></td><td>Download every track listed in a text file.</td></tr>
               <tr><td><code>spotify-dl login</code></td><td>Log in to Spotify again.</td></tr>
               <tr><td><code>spotify-dl settings [--set &lt;folder&gt;]</code></td><td>Show or change the download folder.</td></tr>
+              <tr><td><code>spotify-dl settings --client-id &lt;id&gt; --client-secret &lt;secret&gt;</code></td><td>Save your Spotify credentials.</td></tr>
               <tr><td><code>spotify-dl -p &lt;folder&gt; &lt;command&gt;</code></td><td>Use another folder for this run only.</td></tr>
             </tbody>
           </table>
@@ -433,21 +435,25 @@ SPOTIFY_CLIENT_SECRET=your_client_secret</pre></div>
     <div class="wrap">
       <div class="head">
         <h2>Settings</h2>
-        <p>Credentials live in <code>.env</code>. The download folder is saved separately.</p>
+        <p>Change these in the app's Settings screen, or put the credentials in <code>.env</code>.</p>
       </div>
       <div>
         <div class="table-wrap">
           <table>
             <caption class="sr">spotify-dl settings</caption>
-            <thead><tr><th scope="col">Setting</th><th scope="col">Where</th><th scope="col">What it does</th></tr></thead>
+            <thead><tr><th scope="col">Setting</th><th scope="col">Where to set it</th><th scope="col">Notes</th></tr></thead>
             <tbody>
-              <tr><td><code>SPOTIFY_CLIENT_ID</code></td><td><code>.env</code></td><td>Required. Your app's client ID.</td></tr>
-              <tr><td><code>SPOTIFY_CLIENT_SECRET</code></td><td><code>.env</code></td><td>Required. Your app's client secret.</td></tr>
-              <tr><td><code>SPOTIFY_REDIRECT_URI</code></td><td><code>.env</code></td><td>Optional. Defaults to <code>http://127.0.0.1:5000/callback</code>. It must match the URI in your Spotify app.</td></tr>
-              <tr><td>Download folder</td><td>Menu or <code>settings --set</code></td><td>Defaults to a <code>spotify-dl</code> folder inside your Music folder.</td></tr>
+              <tr><td>Client ID</td><td>Settings, or <code>SPOTIFY_CLIENT_ID</code> in <code>.env</code></td><td>Required.</td></tr>
+              <tr><td>Client secret</td><td>Settings, or <code>SPOTIFY_CLIENT_SECRET</code> in <code>.env</code></td><td>Required.</td></tr>
+              <tr><td>Redirect URI</td><td><code>SPOTIFY_REDIRECT_URI</code> in <code>.env</code></td><td>Optional. Defaults to <code>http://127.0.0.1:5000/callback</code>. Must match your Spotify app.</td></tr>
+              <tr><td>Download folder</td><td>Settings, or <code>settings --set</code></td><td>Press Tab in Settings to complete folder names. Defaults to a <code>spotify-dl</code> folder inside your Music folder.</td></tr>
             </tbody>
           </table>
         </div>
+        <p class="after">
+          Credentials saved in Settings are stored as plain text in <code>%APPDATA%\spotify-dl\config.json</code>.
+          A value in <code>.env</code> or an environment variable overrides the saved one.
+        </p>
         <p class="after notice">
           Playlists need a Spotify login. The first playlist download opens your browser, and the login is saved in
           <code>%APPDATA%\spotify-dl</code>, not next to the exe. Spotify only lists tracks for playlists you own or

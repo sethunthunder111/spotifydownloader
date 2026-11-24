@@ -5,6 +5,7 @@
 mod config;
 mod input;
 mod jobs;
+mod paths;
 mod spotify;
 mod tags;
 mod tui;
@@ -13,10 +14,10 @@ mod youtube;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use config::Config;
+use config::{Config, describe};
 use jobs::{Job, Settings, Sink, run_job};
 
 const DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:5000/callback";
@@ -53,6 +54,12 @@ enum Command {
         /// Save a new default download folder
         #[arg(long)]
         set: Option<PathBuf>,
+        /// Save your Spotify app's client ID
+        #[arg(long)]
+        client_id: Option<String>,
+        /// Save your Spotify app's client secret (it may end up in your shell history)
+        #[arg(long)]
+        client_secret: Option<String>,
     },
     /// Log in to Spotify (needed for playlists)
     Login,
@@ -94,13 +101,29 @@ async fn run() -> Result<()> {
     let cli = Cli::parse();
     let mut config = Config::load();
 
-    if let Some(Command::Settings { set }) = &cli.command {
-        return show_or_set_settings(&mut config, set.clone());
+    if let Some(Command::Settings {
+        set,
+        client_id,
+        client_secret,
+    }) = &cli.command
+    {
+        return show_or_set_settings(
+            &mut config,
+            set.clone(),
+            client_id.as_deref(),
+            client_secret.as_deref(),
+        );
     }
 
+    // Missing credentials are reported when a job starts, so the TUI can open and let the
+    // user enter them in Settings.
+    let (client_id, id_source) = config.client_id();
+    let (client_secret, secret_source) = config.client_secret();
     let settings = Settings {
-        client_id: required_env("SPOTIFY_CLIENT_ID")?,
-        client_secret: required_env("SPOTIFY_CLIENT_SECRET")?,
+        client_id,
+        client_secret,
+        id_source,
+        secret_source,
         redirect_uri: std::env::var("SPOTIFY_REDIRECT_URI")
             .unwrap_or_else(|_| DEFAULT_REDIRECT_URI.to_string()),
         download_dir: cli.path.clone().unwrap_or_else(|| config.download_dir()),
@@ -119,13 +142,37 @@ async fn run() -> Result<()> {
     run_job(job, &settings, &Sink::Stdout).await
 }
 
-fn show_or_set_settings(config: &mut Config, set: Option<PathBuf>) -> Result<()> {
+fn show_or_set_settings(
+    config: &mut Config,
+    set: Option<PathBuf>,
+    client_id: Option<&str>,
+    client_secret: Option<&str>,
+) -> Result<()> {
+    let mut changed = false;
     if let Some(path) = set {
         config.set_download_dir(path)?;
+        changed = true;
+    }
+    if let Some(id) = client_id {
+        config.set_client_id(id)?;
+        changed = true;
+    }
+    if let Some(secret) = client_secret {
+        config.set_client_secret(secret)?;
+        changed = true;
+    }
+    if changed {
         println!("Saved.");
     }
     println!("Download folder: {}", config.download_dir().display());
     println!("Config file:     {}", config.config_file().display());
+    let (id, id_source) = config.client_id();
+    let (secret, secret_source) = config.client_secret();
+    println!("Client ID:       {}", describe(&id, id_source, false));
+    println!(
+        "Client secret:   {}",
+        describe(&secret, secret_source, true)
+    );
     Ok(())
 }
 
@@ -138,14 +185,4 @@ fn load_env_files() {
         let _ = dotenvy::from_path(dir);
     }
     let _ = dotenvy::dotenv();
-}
-
-fn required_env(name: &str) -> Result<String> {
-    match std::env::var(name) {
-        Ok(value) if !value.trim().is_empty() => Ok(value),
-        _ => bail!(
-            "{name} is not set. Add it to a .env file next to spotify-dl.exe \
-             (see .env.example) or as an environment variable."
-        ),
-    }
 }

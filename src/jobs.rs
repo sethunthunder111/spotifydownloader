@@ -7,6 +7,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::config::Source;
 use crate::input::{Kind, parse_id};
 use crate::spotify::{SpotifyClient, Track};
 use crate::youtube::Step;
@@ -74,6 +75,8 @@ fn clear_progress_line() {
 pub struct Settings {
     pub client_id: String,
     pub client_secret: String,
+    pub id_source: Source,
+    pub secret_source: Source,
     pub redirect_uri: String,
     pub download_dir: PathBuf,
 }
@@ -95,6 +98,13 @@ pub async fn run_job(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
 }
 
 async fn run_job_inner(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
+    if settings.client_id.trim().is_empty() || settings.client_secret.trim().is_empty() {
+        bail!(
+            "Spotify client ID and secret are not set. Open Settings in the menu to enter them, \
+             run `spotify-dl settings --client-id <id> --client-secret <secret>`, or add \
+             SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to a .env file next to spotify-dl.exe."
+        );
+    }
     let mut spotify = SpotifyClient::new(
         settings.client_id.clone(),
         settings.client_secret.clone(),

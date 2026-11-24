@@ -27,7 +27,7 @@ winget install Gyan.FFmpeg
 
 1. Create an app at the [Spotify developer dashboard](https://developer.spotify.com/dashboard).
 2. Add `http://127.0.0.1:5000/callback` as a Redirect URI in the app settings.
-3. Copy `.env.example` to `.env` next to the exe and fill in `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`.
+3. Give spotify-dl the app's client ID and secret. Either open **Settings** in the app and enter them there, or copy `.env.example` to `.env` next to the exe and fill in `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`.
 
 ## Usage
 
@@ -40,10 +40,14 @@ spotify-dl query "Artist - Title"   Search and download the best match
 spotify-dl file <list.txt>          Download every link in a file (# starts a comment)
 spotify-dl login                    Log in to Spotify again
 spotify-dl settings [--set <dir>]   Show or change the download folder
+spotify-dl settings --client-id <id> --client-secret <secret>
+                                    Save your Spotify credentials
 spotify-dl -p <dir> <command>       Use another download folder for one run
 ```
 
-Downloads go to your Music folder in a `spotify-dl` subfolder unless you change it.
+Downloads go to your Music folder in a `spotify-dl` subfolder unless you change it. In the terminal UI, **Settings** lets you pick the folder with Tab completion and enter your Spotify client ID and secret.
+
+Credentials saved through Settings are stored as plain text in `%APPDATA%\spotify-dl\config.json`. A `.env` file or environment variables, if present, override them.
 
 Playlists use your Spotify account, so you log in once in the browser. The token is stored in `%APPDATA%\spotify-dl\refresh_token.json`.
 
@@ -72,6 +76,8 @@ cargo clippy --all-targets -- -D warnings
 | `src/youtube.rs` | yt-dlp search and MP3 extraction |
 | `src/tags.rs` | ID3 tag and cover art writing |
 | `src/input.rs` | Link, URI and ID parsing |
+| `src/config.rs` | Saved settings and credentials |
+| `src/paths.rs` | Folder completion for the Settings screen |
 | `legacy/` | The original Node.js version, kept for reference |
 | `docs/` | Landing page, architecture, development and troubleshooting docs |
 

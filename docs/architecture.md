@@ -20,7 +20,8 @@ spotify-dl turns a Spotify link into a tagged MP3 in four steps: resolve the Spo
 
 - With no subcommand, it calls `tui::run`.
 - With a subcommand, it builds a `Job` and calls `jobs::run_job` with a `Sink::Stdout`.
-- `settings` and `login` are handled directly.
+- `settings` is handled directly. `login` runs as a job.
+- Missing Spotify credentials do not stop startup. `run_job` reports them, so the TUI can open and let the user enter them in Settings.
 
 ## Jobs
 
@@ -90,6 +91,7 @@ Writes ID3v2.4 with title, artist (joined with `/`), album, year, and front cove
 
 | Item | Location |
 |------|----------|
-| Saved download folder | `%APPDATA%\spotify-dl\config.json` |
+| Saved settings (download folder, client ID and secret) | `%APPDATA%\spotify-dl\config.json` |
 | Refresh token | `%APPDATA%\spotify-dl\refresh_token.json` |
-| Credentials | `.env` next to the exe, then `.env` in the current folder, then environment variables |
+| Credentials | `.env` next to the exe, then `.env` in the current folder, then environment variables. If none are set, the client ID and secret saved in `config.json` through Settings. |
+| Config folder override | Set `SPOTIFY_DL_CONFIG_DIR` to use another folder for `config.json` and `refresh_token.json` |

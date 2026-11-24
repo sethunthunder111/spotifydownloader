@@ -31,6 +31,8 @@ Unit tests cover pure logic:
 
 - `input.rs`: link, URI, and ID parsing, including locale prefixes and wrong-kind rejection.
 - `jobs.rs`: filename sanitizing.
+- `paths.rs`: folder completion (shared prefix, cycling, case-insensitive matching).
+- `config.rs`: environment values win over saved credentials.
 
 Network paths (Spotify, YouTube, tagging) have no automated tests. Verify them by hand with a real link:
 
@@ -41,6 +43,13 @@ cargo run -- settings --set "$env:TEMP\spotify-dl-test"
 ```
 
 Use a throwaway download folder so you do not overwrite your music library.
+
+To test settings and login without touching your real saved settings, point the app at a scratch config folder:
+
+```powershell
+$env:SPOTIFY_DL_CONFIG_DIR = "$env:TEMP\spotify-dl-config"
+cargo run
+```
 
 ## Adding a subcommand
 
