@@ -64,7 +64,7 @@ See `docs/architecture.md` for how the pieces fit together.
 
 ## HANDOFF: unfinished work in the working tree
 
-Everything in this section is uncommitted on top of `v0.1.2`. **The build is currently broken.** New and rewritten files exist, but their callers were not updated and nothing has been compiled yet. Finish the steps below, then delete this section.
+Everything in this section is on branch `wip/youtube-music`, on top of `v0.1.2`. Check that branch out first; `main` does not contain this work. **The build on that branch is broken.** New and rewritten files exist, but their callers were not updated and nothing has been compiled yet. Finish the steps below, then delete this section. When done, merge the branch into `main` only if the user asks.
 
 ### The task (from the user)
 
