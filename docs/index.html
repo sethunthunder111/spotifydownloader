@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>spotify-dl: paste a Spotify link, get tagged MP3s</title>
+  <meta name="description" content="spotify-dl downloads Spotify songs, albums and playlists as MP3 files with title, artist, album, year and cover art. One Windows exe with a terminal menu.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#E7EAF0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0D1018" media="(prefers-color-scheme: dark)">
+  <meta property="og:title" content="spotify-dl: paste a Spotify link, get tagged MP3s">
+  <meta property="og:description" content="Songs, albums and playlists as MP3 files with title, artist, album, year and cover art. One Windows exe.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232231E0'/%3E%3Cpath d='M9 10l7 6-7 6M18 22h6' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preload" href="fonts/archivo-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    @font-face {
+      font-family: "Archivo";
+      src: url("fonts/archivo-latin-wdth-normal.woff2") format("woff2");
+      font-weight: 100 900;
+      font-stretch: 62% 125%;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "IBM Plex Mono";
+      src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "IBM Plex Mono";
+      src: url("fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+      font-weight: 500;
+      font-display: swap;
+    }
+
+    :root {
+      color-scheme: light dark;
+      --paper: #E7EAF0;
+      --ink: #0F1320;
+      --muted: #474F63;
+      --rule: #B9C0CE;
+      --cobalt: #2231E0;
+      --on-cobalt: #FFFFFF;
+
+      --screen: #0C1022;
+      --chrome: #171C36;
+      --t-text: #DCE1F0;
+      --t-dim: #8F97AF;
+      --t-line: #3A4266;
+      --t-blue: #9AA6FF;
+
+      --sans: "Archivo", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+      --measure: 62ch;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0D1018;
+        --ink: #E9ECF4;
+        --muted: #A0A8BB;
+        --rule: #272D3E;
+        --cobalt: #8E9BFF;
+        --on-cobalt: #0D1018;
+        --screen: #070A15;
+        --chrome: #12162A;
+        --t-line: #363E60;
+      }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-padding-top: 5rem; -webkit-text-size-adjust: 100%; }
+    @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 400 1.0625rem/1.58 var(--sans);
+      font-kerning: normal;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--cobalt); text-underline-offset: 0.2em; text-decoration-thickness: 1px; }
+    a:hover { text-decoration-thickness: 2px; }
+    :focus-visible { outline: 3px solid var(--cobalt); outline-offset: 3px; border-radius: 2px; }
+    code { font-family: var(--mono); font-size: 0.88em; }
+    p { margin: 0; text-wrap: pretty; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    .skip {
+      position: absolute; left: 1rem; top: -4rem; z-index: 20;
+      background: var(--cobalt); color: var(--on-cobalt); padding: 0.6rem 1rem; border-radius: 3px;
+    }
+    .skip:focus { top: 1rem; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2rem); }
+
+    /* ---------- Header ---------- */
+    .site {
+      position: sticky; top: 0; z-index: 10;
+      background: var(--paper); border-bottom: 1px solid var(--rule);
+    }
+    .site .wrap { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 3.5rem; flex-wrap: wrap; }
+    .brand {
+      font-weight: 800; font-stretch: 125%; font-size: 1.1rem; letter-spacing: -0.01em;
+      color: var(--ink); text-decoration: none;
+    }
+    .nav { display: flex; gap: clamp(0.9rem, 2.4vw, 1.75rem); flex-wrap: wrap; font-size: 0.95rem; }
+    .nav a { color: var(--muted); text-decoration: none; padding: 0.4rem 0; }
+    .nav a:hover { color: var(--ink); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 0.35em; }
+
+    /* ---------- Hero ---------- */
+    .hero { padding-top: clamp(2.5rem, 7vw, 5.5rem); padding-bottom: clamp(3rem, 7vw, 5rem); }
+    .hero h1 {
+      margin: 0; max-width: 15em;
+      font-weight: 800; font-stretch: 125%;
+      font-size: clamp(2rem, 6vw + 0.6rem, 4.6rem); line-height: 1.02; letter-spacing: -0.02em;
+      text-wrap: balance;
+    }
+    .hero .lead { margin-top: 1.6rem; max-width: 54ch; font-size: 1.2rem; line-height: 1.55; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
+    .btn {
+      display: inline-block; padding: 0.8rem 1.3rem; border-radius: 4px;
+      font-weight: 650; font-stretch: 108%; text-decoration: none;
+      border: 2px solid var(--ink); color: var(--ink); background: transparent;
+    }
+    .btn:hover { background: var(--ink); color: var(--paper); }
+    .btn.primary { background: var(--cobalt); border-color: var(--cobalt); color: var(--on-cobalt); }
+    .btn.primary:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+    .fine { margin-top: 1rem; color: var(--muted); font-size: 0.92rem; }
+
+    /* ---------- Terminal ---------- */
+    .term {
+      margin: clamp(2.5rem, 6vw, 4rem) 0 0;
+      background: var(--screen); color: var(--t-text);
+      border: 1px solid var(--t-line); border-radius: 8px; overflow: hidden;
+      box-shadow: 0 28px 60px -28px rgba(8, 12, 40, 0.6);
+    }
+    .chrome { display: flex; align-items: stretch; justify-content: space-between; background: var(--chrome); height: 2.4rem; font-size: 0.8rem; }
+    .tab {
+      display: flex; align-items: center; gap: 0.6rem; margin: 0.45rem 0 0 0.6rem; padding: 0 1.1rem 0 0.8rem;
+      background: var(--screen); border-radius: 6px 6px 0 0; color: var(--t-text);
+    }
+    .tab i { font: 500 0.72rem var(--mono); font-style: normal; color: var(--t-blue); }
+    .ctl { display: flex; }
+    .ctl span { display: grid; place-items: center; width: 2.9rem; color: var(--t-dim); }
+    .ctl svg { width: 0.62rem; height: 0.62rem; }
+    .screen {
+      display: grid; gap: 0.7rem; padding: 1.1rem 1rem 1.2rem;
+      font: 400 0.875rem/1.5 var(--mono); color: var(--t-text);
+    }
+    .pane { position: relative; border: 1px solid var(--t-line); padding: 0.45rem 0.5ch; min-width: 0; }
+    .pane > .t {
+      position: absolute; left: 1.5ch; top: 0; transform: translateY(-55%);
+      background: var(--screen); padding: 0 0.5ch; color: var(--t-text);
+    }
+    .body { display: grid; grid-template-columns: 24ch minmax(0, 1fr); gap: 0.7rem; }
+    .menu { margin: 0; padding: 0; list-style: none; }
+    .menu li { white-space: pre; margin: 0 -0.5ch; padding: 0 0.5ch; }
+    .menu li::before { content: "  "; }
+    .menu li.on { background: var(--t-text); color: var(--screen); }
+    .menu li.on::before { content: "> "; }
+    .log { min-height: calc(9 * 1.5em + 0.9rem); }
+    .ln { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .f { display: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .term[data-state="menu"] .f-menu,
+    .term[data-state="input"] .f-input,
+    .term[data-state="work"] .f-work { display: block; }
+
+    /* ---------- Sections ---------- */
+    .block { border-top: 1px solid var(--rule); padding: clamp(3rem, 8vw, 6rem) 0; }
+    .block .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); gap: 1.5rem clamp(2rem, 6vw, 5rem); }
+    .head { align-self: start; }
+    .head h2 {
+      margin: 0; font-weight: 800; font-stretch: 118%;
+      font-size: clamp(1.7rem, 2.6vw + 0.8rem, 2.5rem); line-height: 1.08; letter-spacing: -0.015em; text-wrap: balance;
+    }
+    .head p { margin-top: 0.9rem; color: var(--muted); max-width: 34ch; }
+    @media (min-width: 861px) { .head { position: sticky; top: 5.5rem; } }
+    @media (max-width: 860px) { .block .wrap { grid-template-columns: minmax(0, 1fr); } }
+
+    .feat { margin: 0; padding: 0; }
+    .feat > div { border-top: 1px solid var(--rule); padding: 1.15rem 0 1.3rem; }
+    .feat > div:first-child { border-top: 0; padding-top: 0; }
+    .feat dt { font-weight: 700; font-stretch: 108%; font-size: 1.12rem; line-height: 1.3; }
+    .feat dd { margin: 0.3rem 0 0; max-width: var(--measure); }
+
+    .steps { margin: 0; padding: 0; list-style: none; counter-reset: step; }
+    .steps > li {
+      counter-increment: step; display: grid; grid-template-columns: 3.2rem minmax(0, 1fr);
+      border-top: 1px solid var(--rule); padding: 1.25rem 0 1.5rem;
+    }
+    .steps > li:first-child { border-top: 0; padding-top: 0; }
+    .steps > li::before {
+      content: counter(step); font-weight: 800; font-stretch: 125%; font-size: 1.6rem; line-height: 1.1; color: var(--cobalt);
+    }
+    .steps h3 { margin: 0; font-weight: 700; font-stretch: 108%; font-size: 1.12rem; line-height: 1.3; }
+    .steps p { margin-top: 0.3rem; max-width: var(--measure); }
+    .steps p + p { margin-top: 0.9rem; }
+    .steps .codebox { max-width: var(--measure); }
+
+    .codebox { position: relative; margin-top: 0.9rem; }
+    .code {
+      margin: 0; padding: 0.95rem 4.6rem 0.95rem 1.1rem; overflow-x: auto;
+      background: var(--screen); color: var(--t-text); border: 1px solid var(--t-line); border-radius: 4px;
+      font: 400 0.875rem/1.65 var(--mono);
+    }
+    .copy {
+      position: absolute; top: 0.45rem; right: 0.45rem; padding: 0.2rem 0.6rem;
+      font: 500 0.75rem var(--mono); color: var(--t-text); background: var(--chrome);
+      border: 1px solid var(--t-line); border-radius: 3px; cursor: pointer;
+    }
+    .copy:hover { border-color: var(--t-text); }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.98rem; }
+    th, td { text-align: left; vertical-align: top; padding: 0.8rem 1.2rem 0.8rem 0; border-top: 1px solid var(--rule); }
+    thead th { border-top: 0; padding-top: 0; color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+    td:last-child, th:last-child { padding-right: 0; }
+    .cmd code { color: var(--ink); white-space: nowrap; }
+    @media (max-width: 560px) { .cmd code { white-space: normal; overflow-wrap: anywhere; } }
+    .after { margin-top: 1.75rem; max-width: var(--measure); }
+    .after + .after { margin-top: 1rem; }
+    .notice { padding: 0.2rem 0 0.2rem 1.1rem; border-left: 3px solid var(--cobalt); }
+
+    /* ---------- Footer ---------- */
+    .foot-site { border-top: 1px solid var(--rule); padding: 2rem 0 3rem; color: var(--muted); font-size: 0.92rem; }
+    .foot-site .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.75rem 2rem; }
+
+    @media (max-width: 600px) {
+      .menu-pane { display: none; }
+      .body { grid-template-columns: minmax(0, 1fr); }
+      .screen { font-size: 0.78rem; }
+      .ctl span { width: 2.2rem; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip" href="#features">Skip to content</a>
+
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="#top">spotify-dl</a>
+    <nav class="nav" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#start">Get started</a>
+      <a href="#commands">Commands</a>
+      <a href="#settings">Settings</a>
+      <a href="https://github.com/sethunthunder111/spotifydownloader">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <h1>Paste a Spotify link, get tagged MP3s.</h1>
+    <p class="lead">
+      spotify-dl looks up each track on Spotify, finds it on YouTube, and saves an MP3 with title, artist,
+      album, year and cover art to your Music folder.
+    </p>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/sethunthunder111/spotifydownloader/releases/latest">Download for Windows</a>
+      <a class="btn" href="https://github.com/sethunthunder111/spotifydownloader">View source on GitHub</a>
+    </div>
+    <p class="fine">Free and open source under the MIT license. Windows 10 and 11, 64-bit.</p>
+
+    <figure class="term" data-demo data-state="work" role="img"
+      aria-label="The spotify-dl terminal menu downloading the album Discovery by Daft Punk. The log shows two tracks saved and the third in progress.">
+      <div class="chrome" aria-hidden="true">
+        <div class="tab"><i>&gt;_</i>spotify-dl</div>
+        <div class="ctl">
+          <span><svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" fill="none"/></svg></span>
+          <span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" stroke="currentColor" fill="none"/></svg></span>
+          <span><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" fill="none"/></svg></span>
+        </div>
+      </div>
+      <div class="screen" aria-hidden="true">
+        <div class="pane"><span class="t">spotify-dl</span>Downloads: C:\Users\you\Music\spotify-dl</div>
+        <div class="body">
+          <div class="pane menu-pane">
+            <span class="t">Menu</span>
+            <ul class="menu" data-menu>
+              <li>Download song</li>
+              <li class="on">Download album</li>
+              <li>Download playlist</li>
+              <li>Search &amp; download</li>
+              <li>Download from file</li>
+              <li>Log in to Spotify</li>
+              <li>Settings</li>
+              <li>Quit</li>
+            </ul>
+          </div>
+          <div class="pane log">
+            <span class="t">Log</span>
+            <div class="ln" data-line>Welcome. Pick an action with the arrow keys and press Enter.</div>
+            <div class="ln" data-line>Album: Discovery (14 tracks)</div>
+            <div class="ln" data-line>[1/14] Daft Punk - One More Time</div>
+            <div class="ln" data-line>  found: Daft Punk - One More Time (Official Audio)</div>
+            <div class="ln" data-line>  saved: C:\Users\you\Music\spotify-dl\Daft Punk - One More Time.mp3</div>
+            <div class="ln" data-line>[2/14] Daft Punk - Aerodynamic</div>
+            <div class="ln" data-line>  found: Daft Punk - Aerodynamic (Official Audio)</div>
+            <div class="ln" data-line>  saved: C:\Users\you\Music\spotify-dl\Daft Punk - Aerodynamic.mp3</div>
+            <div class="ln" data-line>[3/14] Daft Punk - Digital Love</div>
+          </div>
+        </div>
+        <div class="pane">
+          <span class="f f-menu">Up/Down select  Enter run  q quit</span>
+          <span class="f f-input">Album URL, URI or ID: <span data-typed>https://open.spotify.com/album/2noRn2Aes5aoNVsU6iWThc</span>_</span>
+          <span class="f f-work">Working... (q quits)</span>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <section class="block" id="features">
+    <div class="wrap">
+      <div class="head">
+        <h2>What it does</h2>
+        <p>One download folder, real ID3 tags, and a menu you can drive from the keyboard.</p>
+      </div>
+      <dl class="feat">
+        <div>
+          <dt>Songs, albums and playlists</dt>
+          <dd>Paste a link, a <code>spotify:</code> URI or a bare ID. Albums and playlists download track by track, and the log shows each one. Playlists work for ones you own or collaborate on.</dd>
+        </div>
+        <div>
+          <dt>Search by name</dt>
+          <dd>Type “Artist - Title” and spotify-dl downloads the best Spotify match.</dd>
+        </div>
+        <div>
+          <dt>Batch files</dt>
+          <dd>List one link or ID per line in a text file. Lines that start with <code>#</code> are ignored.</dd>
+        </div>
+        <div>
+          <dt>Tags and cover art</dt>
+          <dd>Every file gets title, artist, album, year and front cover as ID3v2.4 tags, so your player shows them.</dd>
+        </div>
+        <div>
+          <dt>Length check</dt>
+          <dd>A YouTube result is used only when its length is within 30 seconds of the Spotify track. That filters out most wrong uploads. It also skips some real matches, such as live versions.</dd>
+        </div>
+        <div>
+          <dt>Menu or command line</dt>
+          <dd>Run it with no arguments for a full-screen menu, or use subcommands in scripts.</dd>
+        </div>
+        <div>
+          <dt>One exe</dt>
+          <dd>Written in Rust. No Node.js, Python or installer. It calls yt-dlp and ffmpeg, which you install once.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="block" id="start">
+    <div class="wrap">
+      <div class="head">
+        <h2>Get started</h2>
+        <p>Five steps. You set up the Spotify side once, then it stays set up.</p>
+      </div>
+      <ol class="steps">
+        <li>
+          <div>
+            <h3>Install yt-dlp and ffmpeg</h3>
+            <p>spotify-dl uses them to find and convert audio. You can also put <code>yt-dlp.exe</code> and <code>ffmpeg.exe</code> in the same folder as <code>spotify-dl.exe</code>.</p>
+            <div class="codebox"><pre class="code">winget install yt-dlp.yt-dlp
+winget install Gyan.FFmpeg</pre></div>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Download spotify-dl</h3>
+            <p>Get <code>spotify-dl-windows-x64.zip</code> from the <a href="https://github.com/sethunthunder111/spotifydownloader/releases/latest">latest release</a> and unzip it. It contains <code>spotify-dl.exe</code> and <code>.env.example</code>.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Create a Spotify app</h3>
+            <p>Open the <a href="https://developer.spotify.com/dashboard">Spotify developer dashboard</a> and create an app. In its settings, add this Redirect URI:</p>
+            <div class="codebox"><pre class="code">http://127.0.0.1:5000/callback</pre></div>
+            <p>Use <code>127.0.0.1</code>, not <code>localhost</code>. Spotify rejects the second one.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Add your credentials</h3>
+            <p>Copy <code>.env.example</code> to <code>.env</code> next to the exe. Paste in the client ID and client secret from your Spotify app.</p>
+            <div class="codebox"><pre class="code">SPOTIFY_CLIENT_ID=your_client_id
+SPOTIFY_CLIENT_SECRET=your_client_secret</pre></div>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Run it</h3>
+            <p>Double-click <code>spotify-dl.exe</code>, or run <code>spotify-dl</code> in a terminal.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="block" id="commands">
+    <div class="wrap">
+      <div class="head">
+        <h2>Commands</h2>
+        <p>Every menu action also works as a command, so you can script it.</p>
+      </div>
+      <div>
+        <div class="table-wrap">
+          <table class="cmd">
+            <caption class="sr">spotify-dl commands</caption>
+            <thead><tr><th scope="col">Command</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><td><code>spotify-dl</code></td><td>Open the terminal menu.</td></tr>
+              <tr><td><code>spotify-dl song &lt;link|uri|id&gt;</code></td><td>Download one track.</td></tr>
+              <tr><td><code>spotify-dl album &lt;link|uri|id&gt;</code></td><td>Download an album.</td></tr>
+              <tr><td><code>spotify-dl playlist &lt;link|uri|id&gt;</code></td><td>Download a playlist you own or collaborate on.</td></tr>
+              <tr><td><code>spotify-dl query "Artist - Title"</code></td><td>Search Spotify and download the best match.</td></tr>
+              <tr><td><code>spotify-dl file list.txt</code></td><td>Download every track listed in a text file.</td></tr>
+              <tr><td><code>spotify-dl login</code></td><td>Log in to Spotify again.</td></tr>
+              <tr><td><code>spotify-dl settings [--set &lt;folder&gt;]</code></td><td>Show or change the download folder.</td></tr>
+              <tr><td><code>spotify-dl -p &lt;folder&gt; &lt;command&gt;</code></td><td>Use another folder for this run only.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="after">
+          <code>&lt;link|uri|id&gt;</code> can be an <code>open.spotify.com</code> link, a URI such as
+          <code>spotify:track:4uLU6hMCjMI75M1A2tKUQC</code>, or the 22-character ID.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="settings">
+    <div class="wrap">
+      <div class="head">
+        <h2>Settings</h2>
+        <p>Credentials live in <code>.env</code>. The download folder is saved separately.</p>
+      </div>
+      <div>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr">spotify-dl settings</caption>
+            <thead><tr><th scope="col">Setting</th><th scope="col">Where</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><td><code>SPOTIFY_CLIENT_ID</code></td><td><code>.env</code></td><td>Required. Your app's client ID.</td></tr>
+              <tr><td><code>SPOTIFY_CLIENT_SECRET</code></td><td><code>.env</code></td><td>Required. Your app's client secret.</td></tr>
+              <tr><td><code>SPOTIFY_REDIRECT_URI</code></td><td><code>.env</code></td><td>Optional. Defaults to <code>http://127.0.0.1:5000/callback</code>. It must match the URI in your Spotify app.</td></tr>
+              <tr><td>Download folder</td><td>Menu or <code>settings --set</code></td><td>Defaults to a <code>spotify-dl</code> folder inside your Music folder.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="after notice">
+          Playlists need a Spotify login. The first playlist download opens your browser, and the login is saved in
+          <code>%APPDATA%\spotify-dl</code>, not next to the exe. Spotify only lists tracks for playlists you own or
+          collaborate on. Keep <code>.env</code> private and never commit it.
+        </p>
+        <p class="after">
+          Something not working? Read the
+          <a href="https://github.com/sethunthunder111/spotifydownloader/blob/main/docs/troubleshooting.md">troubleshooting guide</a>.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot-site">
+  <div class="wrap">
+    <span>spotify-dl is an independent project. It is not affiliated with Spotify or YouTube.</span>
+    <span>Only download music you have the right to download.</span>
+  </div>
+</footer>
+
+<script>
+  // Copy buttons on code blocks.
+  document.querySelectorAll('.codebox').forEach(function (box) {
+    var pre = box.querySelector('pre');
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy';
+    btn.textContent = 'Copy';
+    btn.setAttribute('aria-live', 'polite');
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(pre.innerText.trim()).then(
+        function () { btn.textContent = 'Copied'; },
+        function () { btn.textContent = 'Press Ctrl+C'; }
+      );
+      setTimeout(function () { btn.textContent = 'Copy'; }, 1800);
+    });
+    box.appendChild(btn);
+  });
+
+  // One-time terminal demo: pick "Download album", type a link, watch the log fill.
+  (function () {
+    var term = document.querySelector('[data-demo]');
+    if (!term || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var rows = Array.prototype.slice.call(term.querySelectorAll('[data-menu] li'));
+    var lines = Array.prototype.slice.call(term.querySelectorAll('[data-line]'));
+    var typed = term.querySelector('[data-typed]');
+    var link = typed.textContent;
+    var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+
+    async function play() {
+      typed.textContent = '';
+      term.dataset.state = 'menu';
+      rows.forEach(function (r, i) { r.classList.toggle('on', i === 0); });
+      lines.forEach(function (l, i) { l.hidden = i > 0; });
+      await wait(900);
+      rows[0].classList.remove('on');
+      rows[1].classList.add('on');
+      await wait(900);
+      term.dataset.state = 'input';
+      for (var i = 0; i < link.length; i++) {
+        typed.textContent += link[i];
+        await wait(26);
+      }
+      await wait(500);
+      term.dataset.state = 'work';
+      for (var j = 1; j < lines.length; j++) {
+        lines[j].hidden = false;
+        await wait(520);
+      }
+    }
+    play();
+  })();
+</script>
+</body>
+</html>

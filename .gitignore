@@ -1,0 +1,23 @@
+# Rust build output
+/target/
+
+# Local secrets and state: never commit these
+.env
+.spotify_refresh_token.secret.json
+refresh_token.json
+config.json
+
+# Local downloads and caches
+/cache/
+/Downloads/
+/dist/
+
+# Old Node.js build artifacts (kept for reference only)
+legacy/node_modules/
+legacy/spotify-dl.exe
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

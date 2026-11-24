@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/spotify-dl.exe dist/
+          Copy-Item .env.example dist/
+          Compress-Archive -Path dist/* -DestinationPath spotify-dl-windows-x64.zip
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: spotify-dl-windows-x64.zip
+          generate_release_notes: true

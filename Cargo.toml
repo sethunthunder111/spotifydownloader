@@ -1,0 +1,25 @@
+[package]
+name = "spotify-dl"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/sethunthunder111/spotifydownloader"
+authors = ["Sethun Thunder"]
+
+[dependencies]
+anyhow = "1.0.105"
+clap = { version = "4.6.9", features = ["derive"] }
+dirs = "7.0.0"
+dotenvy = "0.15.7"
+id3 = "1.17.4"
+open = "5.4.5"
+ratatui = "0.30.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "rustls", "query"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "fs", "time"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
