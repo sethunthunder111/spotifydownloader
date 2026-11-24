@@ -1,30 +1,71 @@
 //! Download jobs shared by the command-line subcommands and the terminal UI.
 
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::input::{Kind, parse_id};
 use crate::spotify::{SpotifyClient, Track};
+use crate::youtube::Step;
 use crate::{tags, youtube};
 
-/// Where progress messages go: stdout for the CLI, a channel for the TUI log pane.
+/// A message from a running job.
+pub enum Event {
+    /// A permanent line for the log.
+    Log(String),
+    /// What the job is doing right now. Replaces the previous progress text; empty clears it.
+    Progress(String),
+}
+
+/// Where job output goes: stdout for the CLI, a channel for the TUI.
 #[derive(Clone)]
 pub enum Sink {
     Stdout,
-    Channel(UnboundedSender<String>),
+    Channel(UnboundedSender<Event>),
 }
+
+/// Width of the CLI progress line, so a shorter update fully covers a longer one.
+const PROGRESS_WIDTH: usize = 79;
 
 impl Sink {
     pub fn log(&self, message: impl Into<String>) {
         let message = message.into();
         match self {
-            Sink::Stdout => println!("{message}"),
+            Sink::Stdout => {
+                clear_progress_line();
+                println!("{message}");
+            }
             Sink::Channel(tx) => {
-                let _ = tx.send(message);
+                let _ = tx.send(Event::Log(message));
             }
         }
+    }
+
+    pub fn progress(&self, message: impl Into<String>) {
+        let message = message.into();
+        match self {
+            Sink::Stdout => {
+                let mut out = std::io::stdout();
+                if out.is_terminal() {
+                    let text: String = message.chars().take(PROGRESS_WIDTH).collect();
+                    let _ = write!(out, "\r{text:<PROGRESS_WIDTH$}");
+                    let _ = out.flush();
+                }
+            }
+            Sink::Channel(tx) => {
+                let _ = tx.send(Event::Progress(message));
+            }
+        }
+    }
+}
+
+fn clear_progress_line() {
+    let mut out = std::io::stdout();
+    if out.is_terminal() {
+        let _ = write!(out, "\r{:PROGRESS_WIDTH$}\r", "");
     }
 }
 
@@ -48,13 +89,21 @@ pub enum Job {
 }
 
 pub async fn run_job(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
+    let result = run_job_inner(job, settings, sink).await;
+    sink.progress("");
+    result
+}
+
+async fn run_job_inner(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
     let mut spotify = SpotifyClient::new(
         settings.client_id.clone(),
         settings.client_secret.clone(),
         settings.redirect_uri.clone(),
         sink.clone(),
     )?;
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()?;
 
     if let Job::Login = job {
         spotify.login().await?;
@@ -62,6 +111,7 @@ pub async fn run_job(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
         return Ok(());
     }
 
+    sink.progress("Checking yt-dlp and ffmpeg...");
     youtube::check_tools().await?;
     std::fs::create_dir_all(&settings.download_dir)
         .with_context(|| format!("cannot create {}", settings.download_dir.display()))?;
@@ -70,11 +120,18 @@ pub async fn run_job(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
     match job {
         Job::Song(input) => {
             let id = parse_id(&input, Kind::Track)?;
+            sink.progress("Looking up the track on Spotify...");
             let track = spotify.track(&id).await?;
+            sink.log(format!(
+                "Track: {} ({})",
+                track.display_name(),
+                minutes(track.duration_ms / 1000)
+            ));
             download_one(&http, sink, dir, &track).await?;
         }
         Job::Album(input) => {
             let id = parse_id(&input, Kind::Album)?;
+            sink.progress("Loading the album from Spotify...");
             let album = spotify.album(&id).await?;
             sink.log(format!(
                 "Album: {} ({} tracks)",
@@ -85,27 +142,40 @@ pub async fn run_job(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
         }
         Job::Playlist(input) => {
             let id = parse_id(&input, Kind::Playlist)?;
+            sink.progress("Loading the playlist from Spotify...");
             let tracks = spotify.playlist(&id).await?;
             sink.log(format!("Playlist: {} playable tracks", tracks.len()));
             download_all(&http, sink, dir, &tracks).await;
         }
         Job::Search(query) => {
+            sink.progress(format!("Searching Spotify for \"{query}\"..."));
             let track = spotify
                 .search_track(&query)
                 .await?
                 .ok_or_else(|| anyhow!("no Spotify track matched \"{query}\""))?;
+            sink.log(format!(
+                "Best match: {} ({})",
+                track.display_name(),
+                minutes(track.duration_ms / 1000)
+            ));
             download_one(&http, sink, dir, &track).await?;
         }
         Job::File(path) => {
             let text = tokio::fs::read_to_string(&path)
                 .await
                 .with_context(|| format!("cannot read {}", path.display()))?;
-            let mut tracks = Vec::new();
-            for line in text
+            let entries: Vec<&str> = text
                 .lines()
                 .map(str::trim)
                 .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            {
+                .collect();
+            let mut tracks = Vec::new();
+            for (i, line) in entries.iter().enumerate() {
+                sink.progress(format!(
+                    "Looking up {} of {} on Spotify...",
+                    i + 1,
+                    entries.len()
+                ));
                 match parse_id(line, Kind::Track) {
                     Ok(id) => match spotify.track(&id).await {
                         Ok(track) => tracks.push(track),
@@ -117,6 +187,7 @@ pub async fn run_job(job: Job, settings: &Settings, sink: &Sink) -> Result<()> {
             if tracks.is_empty() {
                 bail!("no valid track entries in {}", path.display());
             }
+            sink.log(format!("File: {} tracks", tracks.len()));
             download_all(&http, sink, dir, &tracks).await;
         }
         Job::Login => unreachable!("handled above"),
@@ -149,16 +220,33 @@ pub async fn download_one(
 ) -> Result<PathBuf> {
     let name = track.display_name();
     let query = name.replace(['\'', '"', ',', '.', '/'], "");
+    sink.progress(format!("Searching YouTube for {name}..."));
     let video = youtube::find_match(&query, track.duration_ms)
         .await?
         .ok_or_else(|| anyhow!("no YouTube match for \"{name}\" with a similar duration"))?;
-    sink.log(format!("  found: {}", video.title));
+    match video.duration_secs {
+        Some(secs) => sink.log(format!(
+            "  found: {} ({})",
+            video.title,
+            minutes(secs.round() as u64)
+        )),
+        None => sink.log(format!("  found: {}", video.title)),
+    }
 
     let temp_dir = std::env::temp_dir().join("spotify-dl").join(&track.id);
     let result = async {
-        let mp3 = youtube::download_mp3(&video, &temp_dir).await?;
+        sink.progress(format!("Starting download of {name}..."));
+        let mp3 = youtube::download_mp3(&video, &temp_dir, |step| match step {
+            Step::Downloading { percent, eta } => sink.progress(match eta {
+                Some(eta) => format!("Downloading {name}: {percent}, {eta} left"),
+                None => format!("Downloading {name}: {percent}"),
+            }),
+            Step::Converting => sink.progress(format!("Converting {name} to MP3...")),
+        })
+        .await?;
         let target = dir.join(sanitize_filename(&format!("{name}.mp3")));
         move_file(&mp3, &target).await?;
+        sink.progress(format!("Writing tags and cover art for {name}..."));
         if let Err(e) = tags::write(&target, track, http, sink).await {
             sink.log(format!("  warning: saved but could not write tags: {e:#}"));
         }
@@ -170,6 +258,11 @@ pub async fn download_one(
     let target = result?;
     sink.log(format!("  saved: {}", target.display()));
     Ok(target)
+}
+
+/// Formats seconds as `m:ss`.
+fn minutes(secs: u64) -> String {
+    format!("{}:{:02}", secs / 60, secs % 60)
 }
 
 async fn move_file(from: &Path, to: &Path) -> Result<()> {
@@ -204,12 +297,18 @@ pub fn sanitize_filename(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_filename;
+    use super::{minutes, sanitize_filename};
 
     #[test]
     fn replaces_reserved_characters() {
         assert_eq!(sanitize_filename("AC/DC: Back?.mp3"), "AC_DC_ Back_.mp3");
         assert_eq!(sanitize_filename("name. "), "name");
         assert_eq!(sanitize_filename("..."), "untitled");
+    }
+
+    #[test]
+    fn formats_minutes() {
+        assert_eq!(minutes(0), "0:00");
+        assert_eq!(minutes(320), "5:20");
     }
 }

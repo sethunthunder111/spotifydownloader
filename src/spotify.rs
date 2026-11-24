@@ -19,6 +19,8 @@ const AUTHORIZE_URL: &str = "https://accounts.spotify.com/authorize";
 const SCOPES: &str = "playlist-read-private playlist-read-collaborative user-library-read";
 const AUTH_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_RETRIES: u32 = 3;
+/// Longest rate-limit wait we sit through before giving up.
+const MAX_RETRY_WAIT_SECS: u64 = 60;
 
 // ---------- Models ----------
 
@@ -360,14 +362,24 @@ impl SpotifyClient {
                 .send()
                 .await?;
             let status = resp.status();
-            if status == StatusCode::TOO_MANY_REQUESTS && attempt < MAX_RETRIES {
-                attempt += 1;
+            if status == StatusCode::TOO_MANY_REQUESTS {
                 let wait = resp
                     .headers()
                     .get(reqwest::header::RETRY_AFTER)
                     .and_then(|v| v.to_str().ok())
                     .and_then(|v| v.parse::<u64>().ok())
                     .unwrap_or(2);
+                // Spotify can ask for waits of many hours. Fail with a clear message instead
+                // of sleeping silently.
+                if attempt >= MAX_RETRIES || wait > MAX_RETRY_WAIT_SECS {
+                    bail!(
+                        "Spotify is rate limiting this app. Try again in about {} minutes.",
+                        wait.div_ceil(60)
+                    );
+                }
+                attempt += 1;
+                self.sink
+                    .progress(format!("Spotify asked to slow down. Waiting {wait} s..."));
                 tokio::time::sleep(Duration::from_secs(wait)).await;
                 continue;
             }

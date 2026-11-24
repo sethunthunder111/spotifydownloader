@@ -1,22 +1,24 @@
 //! Full-screen terminal interface, shown when spotify-dl is started without a subcommand.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use unicode_width::UnicodeWidthChar;
 
 use crate::config::Config;
-use crate::jobs::{Job, Settings, Sink, run_job};
+use crate::jobs::{self, Job, Settings, Sink, run_job};
 
 const LOG_LIMIT: usize = 1000;
+const SPINNER: [char; 4] = ['|', '/', '-', '\\'];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
@@ -54,8 +56,11 @@ struct App {
     input: String,
     logs: Vec<String>,
     status: String,
+    /// What the running job is doing right now.
+    progress: String,
+    started: Option<Instant>,
     sink: Sink,
-    rx: mpsc::UnboundedReceiver<String>,
+    rx: mpsc::UnboundedReceiver<jobs::Event>,
     job: Option<JoinHandle<()>>,
     quit: bool,
 }
@@ -71,6 +76,8 @@ pub async fn run(settings: Settings, config: Config) -> Result<()> {
         input: String::new(),
         logs: vec!["Welcome. Pick an action with the arrow keys and press Enter.".into()],
         status: String::new(),
+        progress: String::new(),
+        started: None,
         sink: Sink::Channel(tx),
         rx,
         job: None,
@@ -90,8 +97,11 @@ pub async fn run(settings: Settings, config: Config) -> Result<()> {
 impl App {
     async fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
-            while let Ok(line) = self.rx.try_recv() {
-                self.push_log(line);
+            while let Ok(event) = self.rx.try_recv() {
+                match event {
+                    jobs::Event::Log(line) => self.push_log(&line),
+                    jobs::Event::Progress(text) => self.progress = text,
+                }
             }
             terminal.draw(|frame| self.draw(frame))?;
 
@@ -108,8 +118,17 @@ impl App {
         self.job.as_ref().is_some_and(|h| !h.is_finished())
     }
 
-    fn push_log(&mut self, line: String) {
-        self.logs.push(line);
+    /// Adds a message to the log. Multi-line messages become several lines, and control
+    /// characters are removed: written raw, they would corrupt the screen.
+    fn push_log(&mut self, message: &str) {
+        for line in message.lines() {
+            let clean: String = line
+                .replace('\t', "    ")
+                .chars()
+                .filter(|c| !c.is_control())
+                .collect();
+            self.logs.push(clean);
+        }
         if self.logs.len() > LOG_LIMIT {
             self.logs.drain(..self.logs.len() - LOG_LIMIT);
         }
@@ -163,6 +182,9 @@ impl App {
         match action {
             Action::Quit => self.quit = true,
             Action::Login => self.start(Job::Login),
+            _ if self.busy() && action != Action::Settings => {
+                self.status = "A download is already running. Wait for it to finish.".into();
+            }
             _ => self.mode = Mode::Input(action),
         }
     }
@@ -185,10 +207,11 @@ impl App {
                     match self.config.set_download_dir(PathBuf::from(&text)) {
                         Ok(()) => {
                             self.settings.download_dir = self.config.download_dir();
-                            self.push_log(format!(
+                            let message = format!(
                                 "Download folder set to {}",
                                 self.settings.download_dir.display()
-                            ));
+                            );
+                            self.push_log(&message);
                             self.status = "Settings saved.".into();
                         }
                         Err(e) => self.status = format!("Could not save settings: {e:#}"),
@@ -207,13 +230,15 @@ impl App {
             return;
         }
         self.status.clear();
+        self.progress.clear();
+        self.started = Some(Instant::now());
         let settings = self.settings.clone();
         let sink = self.sink.clone();
         self.job = Some(tokio::spawn(async move {
-            if let Err(e) = run_job(job, &settings, &sink).await {
-                sink.log(format!("error: {e:#}"));
+            match run_job(job, &settings, &sink).await {
+                Ok(()) => sink.log("Done."),
+                Err(e) => sink.log(format!("error: {e:#}")),
             }
-            sink.log("-- done --");
         }));
     }
 
@@ -243,26 +268,88 @@ impl App {
             .highlight_symbol("> ");
         frame.render_stateful_widget(menu, menu_area, &mut self.menu);
 
-        let visible = log_area.height.saturating_sub(2) as usize;
-        let lines: Vec<Line> = self
-            .logs
-            .iter()
-            .skip(self.logs.len().saturating_sub(visible))
-            .map(|l| Line::from(l.as_str()))
-            .collect();
+        // Wrap long lines (links, file paths) and show the newest rows that fit.
+        let width = log_area.width.saturating_sub(2) as usize;
+        let height = log_area.height.saturating_sub(2) as usize;
+        let mut rows: Vec<Line> = Vec::with_capacity(height);
+        'fill: for entry in self.logs.iter().rev() {
+            let style = log_style(entry);
+            for piece in wrap(entry, width).into_iter().rev() {
+                if rows.len() == height {
+                    break 'fill;
+                }
+                rows.push(Line::styled(piece, style));
+            }
+        }
+        rows.reverse();
         frame.render_widget(
-            Paragraph::new(lines).block(Block::bordered().title(" Log ")),
+            Paragraph::new(rows).block(Block::bordered().title(" Log ")),
             log_area,
         );
 
-        let footer_text = match self.mode {
-            Mode::Input(action) => format!("{}: {}_", prompt(action), self.input),
-            Mode::Menu if self.busy() => "Working... (q quits)".to_string(),
-            Mode::Menu if !self.status.is_empty() => self.status.clone(),
-            Mode::Menu => "Up/Down select  Enter run  q quit".to_string(),
+        let (footer_text, footer_style) = match self.mode {
+            Mode::Input(action) => (format!("{}: {}_", prompt(action), self.input), Style::new()),
+            Mode::Menu if self.busy() => {
+                let elapsed = self.started.map(|s| s.elapsed()).unwrap_or_default();
+                let spin = SPINNER[(elapsed.as_millis() / 150) as usize % SPINNER.len()];
+                let doing = if self.progress.is_empty() {
+                    "Working..."
+                } else {
+                    self.progress.as_str()
+                };
+                (
+                    format!("{spin} {doing}  [{}s, q quits]", elapsed.as_secs()),
+                    Style::new().fg(Color::Cyan),
+                )
+            }
+            Mode::Menu if !self.status.is_empty() => {
+                (self.status.clone(), Style::new().fg(Color::Yellow))
+            }
+            Mode::Menu => (
+                "Up/Down select  Enter run  q quit".to_string(),
+                Style::new().add_modifier(Modifier::DIM),
+            ),
         };
-        frame.render_widget(Paragraph::new(footer_text).block(Block::bordered()), footer);
+        frame.render_widget(
+            Paragraph::new(Line::styled(footer_text, footer_style)).block(Block::bordered()),
+            footer,
+        );
     }
+}
+
+/// Colours log lines by what they report.
+fn log_style(line: &str) -> Style {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("error") || trimmed.starts_with("[fail]") {
+        Style::new().fg(Color::Red)
+    } else if trimmed.starts_with("warning") || trimmed.starts_with("[skip]") {
+        Style::new().fg(Color::Yellow)
+    } else if trimmed.starts_with("saved:") || trimmed.starts_with("Done.") {
+        Style::new().fg(Color::Green)
+    } else if trimmed.starts_with("found:") {
+        Style::new().add_modifier(Modifier::DIM)
+    } else {
+        Style::new()
+    }
+}
+
+/// Splits `text` into rows no wider than `width` terminal cells.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut rows = vec![String::new()];
+    let mut used = 0;
+    for c in text.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w > width {
+            rows.push(String::new());
+            used = 0;
+        }
+        rows.last_mut().expect("rows is never empty").push(c);
+        used += w;
+    }
+    rows
 }
 
 fn prompt(action: Action) -> &'static str {
@@ -274,5 +361,17 @@ fn prompt(action: Action) -> &'static str {
         Action::File => "Path to list file",
         Action::Settings => "New download folder (Enter keeps current)",
         Action::Login | Action::Quit => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap;
+
+    #[test]
+    fn wraps_by_width() {
+        assert_eq!(wrap("abcdef", 4), vec!["abcd", "ef"]);
+        assert_eq!(wrap("", 4), vec![""]);
+        assert_eq!(wrap("abc", 0), vec!["abc"]);
     }
 }

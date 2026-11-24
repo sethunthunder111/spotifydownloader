@@ -2308,6 +2308,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "unicode-width",
  "winresource",
 ]
 
